@@ -90,3 +90,17 @@ python src/rome2/acquire_variant_mesh_definitions.py --helper tools\rome2_pack\t
 
 Configured order is provisional; it is not an attempt to model Rome II's full
 pack-loading rules.
+
+## Direct dependency extraction
+
+`extract_dependency_manifest.py` extracts only resolver-listed `.rigid_model_v2`
+models and direct `decal_*` texture identifiers. It writes a separate
+`rome2aoe2.asset-extraction` manifest with `success`, `success-with-skips`, or
+`failed` status; missing raw assets and extraction failures are distinct.
+
+Praetorian Guard validation extracted all ten RMV2 models from
+`models3_rome2.pack`. Its raw `decal_diffuse` and `decal_normal` identifiers
+were not direct archive paths in the configured model packs and are recorded as
+missing without adding extensions or transformations. Logical decal resolution
+is a separate future stage: investigate its relation to texture/material
+resources, relevant pack types, and model/material metadata.
