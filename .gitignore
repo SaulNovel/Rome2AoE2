@@ -31,9 +31,12 @@ test_data/empires2_x2_p1.dat
 test_data/AoE2DE.dat
 test_data/empires2_x2_p1_2.dat
 
-# Local AoE2 graphics used for manual conversion and mod-generation workflows.
-# Only explicitly reviewed, redistributable fixtures should live elsewhere.
-graphics/
+# Local game-derived graphics (do not commit)
+/graphics/
+
+# Keep synthetic test fixtures
+!/test_data/graphics/
+!/test_data/graphics/**
 
 # Blender
 *.blend1

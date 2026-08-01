@@ -1,0 +1,15 @@
+* text=auto
+
+*.cpp text eol=lf
+*.h text eol=lf
+*.py text eol=lf
+*.md text eol=lf
+*.txt text eol=lf
+*.cmake text eol=lf
+CMakeLists.txt text eol=lf
+*.variantmeshdefinition text eol=lf
+
+*.aoe2scenario binary
+*.dat binary
+*.smx binary
+*.sld binary
