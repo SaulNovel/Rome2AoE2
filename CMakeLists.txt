@@ -137,3 +137,6 @@ add_test(
 set_tests_properties(VariantMeshDefinitionAcquisitionTests PROPERTIES
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
 )
+
+add_test(NAME Rome2AssetExtractionTests COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_SOURCE_DIR}/tests/Rome2AssetExtractionTests.py)
+set_tests_properties(Rome2AssetExtractionTests PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
