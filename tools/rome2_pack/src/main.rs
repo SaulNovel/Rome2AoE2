@@ -7,6 +7,8 @@ use std::sync::OnceLock;
 
 use rpfm_lib::files::{pack::Pack, Container, ContainerPath, FileType, RFile};
 use rpfm_lib::files::{rigidmodel::RigidModel, Decodeable};
+use rpfm_extensions::dependencies::Dependencies;
+use rpfm_extensions::gltf::{gltf_from_rigid, save_gltf_to_disk};
 use rpfm_lib::games::supported_games::{SupportedGames, KEY_ROME_2};
 use rpfm_lib::games::{pfh_file_type::PFHFileType, pfh_version::PFHVersion};
 use serde_json::json;
@@ -43,10 +45,21 @@ enum Command {
         input: PathBuf,
         validate_decode: bool,
     },
+    ExportRmv2Gltf {
+        input: PathBuf,
+        output: PathBuf,
+        lod: LodSelection,
+    },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LodSelection {
+    Highest,
+    Index(usize),
 }
 
 fn usage() -> &'static str {
-    "Usage:\n  rome2aoe2-pack list --pack <pack-file>\n  rome2aoe2-pack contains --pack <pack-file> --path <pack-relative-path>\n  rome2aoe2-pack extract --pack <pack-file> --path <pack-relative-path> --output-root <directory>\n  rome2aoe2-pack create-test-pack --spec <json-file> --output <pack-file>\n  rome2aoe2-pack inspect-rmv2 --input <local-rmv2-file> [--decode]"
+    "Usage:\n  rome2aoe2-pack list --pack <pack-file>\n  rome2aoe2-pack contains --pack <pack-file> --path <pack-relative-path>\n  rome2aoe2-pack extract --pack <pack-file> --path <pack-relative-path> --output-root <directory>\n  rome2aoe2-pack create-test-pack --spec <json-file> --output <pack-file>\n  rome2aoe2-pack inspect-rmv2 --input <local-rmv2-file> [--decode]\n  rome2aoe2-pack export-rmv2-gltf --input <local-rmv2-file> --output <output.gltf> --lod <highest|index>"
 }
 
 fn parse_pack_relative_path(value: &str) -> Result<PackRelativePath, String> {
@@ -102,6 +115,7 @@ fn parse_command(arguments: &[String]) -> Result<Command, String> {
     let mut output = None;
     let mut input = None;
     let mut validate_decode = false;
+    let mut lod = None;
     let mut index = 1;
     while index < arguments.len() {
         let option = arguments[index].as_str();
@@ -122,6 +136,7 @@ fn parse_command(arguments: &[String]) -> Result<Command, String> {
             "--spec" => spec = Some(PathBuf::from(value)),
             "--output" => output = Some(PathBuf::from(value)),
             "--input" => input = Some(PathBuf::from(value)),
+            "--lod" => lod = Some(parse_lod_selection(value)?),
             _ => return Err(format!("Unknown option '{}'.\n{}", option, usage())),
         }
     }
@@ -136,6 +151,13 @@ fn parse_command(arguments: &[String]) -> Result<Command, String> {
         return Ok(Command::InspectRmv2 {
             input: input.ok_or_else(|| "Missing --input".to_owned())?,
             validate_decode,
+        });
+    }
+    if operation == "export-rmv2-gltf" {
+        return Ok(Command::ExportRmv2Gltf {
+            input: input.ok_or_else(|| "Missing --input".to_owned())?,
+            output: output.ok_or_else(|| "Missing --output".to_owned())?,
+            lod: lod.ok_or_else(|| "Missing --lod".to_owned())?,
         });
     }
     let pack = pack.ok_or_else(|| format!("Missing --pack.\n{}", usage()))?;
@@ -153,6 +175,15 @@ fn parse_command(arguments: &[String]) -> Result<Command, String> {
         }),
         _ => Err(format!("Invalid options for '{}'.\n{}", operation, usage())),
     }
+}
+
+fn parse_lod_selection(value: &str) -> Result<LodSelection, String> {
+    if value == "highest" {
+        return Ok(LodSelection::Highest);
+    }
+    value.parse::<usize>().map(LodSelection::Index).map_err(|_| {
+        format!("Invalid --lod '{}': expected 'highest' or a non-negative LOD index", value)
+    })
 }
 
 fn rome_2_game() -> Result<&'static rpfm_lib::games::GameInfo, String> {
@@ -608,12 +639,173 @@ fn inspect_rmv2(input: &Path, validate_decode: bool) -> Result<serde_json::Value
     }))
 }
 
+fn selected_lod_index(selection: LodSelection, lod_count: usize) -> Result<usize, String> {
+    let index = match selection {
+        // RPFM documents the decoded LOD vector as highest-to-lowest quality.
+        LodSelection::Highest => 0,
+        LodSelection::Index(index) => index,
+    };
+    if index >= lod_count {
+        return Err(format!(
+            "Invalid LOD index {}: RMV2 contains {} LOD(s)",
+            index, lod_count
+        ));
+    }
+    Ok(index)
+}
+
+fn output_gltf_path(output: &Path) -> Result<(), String> {
+    if output.file_name().is_none() {
+        return Err(format!("Invalid glTF output path '{}': file name is required", output.display()));
+    }
+    if !output
+        .extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("gltf"))
+    {
+        return Err(format!(
+            "Invalid glTF output path '{}': expected a .gltf file",
+            output.display()
+        ));
+    }
+    Ok(())
+}
+
+fn ensure_gltf_output_parent(output: &Path) -> Result<(), String> {
+    if let Some(parent) = output.parent() {
+        fs::create_dir_all(parent).map_err(|error| {
+            format!(
+                "Unable to create glTF output directory '{}': {}",
+                parent.display(),
+                error
+            )
+        })?;
+    }
+    Ok(())
+}
+
+fn filtered_model_for_lod(model: &RigidModel, lod_index: usize) -> Result<RigidModel, String> {
+    let selected_lod = model
+        .lods()
+        .get(lod_index)
+        .cloned()
+        .ok_or_else(|| format!("Invalid LOD index {}: RMV2 contains {} LOD(s)", lod_index, model.lods().len()))?;
+    let mut filtered_model = model.clone();
+    *filtered_model.lods_mut() = vec![selected_lod];
+    Ok(filtered_model)
+}
+
+fn gltf_export_result(
+    input_name: &str,
+    output_name: &str,
+    model: &RigidModel,
+    lod_index: usize,
+    mesh_count: usize,
+    vertex_count: usize,
+    index_count: usize,
+    materials: Vec<serde_json::Value>,
+) -> serde_json::Value {
+    json!({
+        "format": "rome2aoe2.rmv2-gltf-export",
+        "input": input_name,
+        "material_types": materials,
+        "mesh_count": mesh_count,
+        "output": output_name,
+        "rmv2_version": model.version(),
+        "selected_lod": lod_index,
+        "skeleton_id": model.skeleton_id(),
+        "triangle_count": index_count / 3,
+        "vertex_count": vertex_count,
+        "version": 1,
+    })
+}
+
+fn export_rmv2_gltf(
+    input: &Path,
+    output: &Path,
+    selection: LodSelection,
+) -> Result<serde_json::Value, String> {
+    output_gltf_path(output)?;
+    let bytes = fs::read(input)
+        .map_err(|error| format!("Unable to read RMV2 '{}': {}", input.display(), error))?;
+    let mut reader = Cursor::new(bytes);
+    let model = RigidModel::decode(&mut reader, &None)
+        .map_err(|error| format!("Unable to decode RMV2 '{}': {}", input.display(), error))?;
+    let lod_index = selected_lod_index(selection, model.lods().len())?;
+    let selected_lod = model.lods()[lod_index].clone();
+    let mesh_count = selected_lod.mesh_blocks().len();
+    let vertex_count = selected_lod
+        .mesh_blocks()
+        .iter()
+        .map(|mesh| mesh.mesh().vertices().len())
+        .sum::<usize>();
+    let index_count = selected_lod
+        .mesh_blocks()
+        .iter()
+        .map(|mesh| mesh.mesh().indices().len())
+        .sum::<usize>();
+    let materials = selected_lod
+        .mesh_blocks()
+        .iter()
+        .map(|mesh| {
+            json!({
+                "name": mesh.material().name(),
+                "type": format!("{:?}", mesh.mesh().material_type()),
+            })
+        })
+        .collect::<Vec<_>>();
+
+    // The upstream exporter emits one scene per entry in `lods`. Keep a clone so
+    // the decoded model remains intact while the exporter receives exactly one LOD.
+    let filtered_model = filtered_model_for_lod(&model, lod_index)?;
+
+    ensure_gltf_output_parent(output)?;
+    let mut dependencies = Dependencies::default();
+    let gltf = gltf_from_rigid(&filtered_model, &mut dependencies).map_err(|error| {
+        format!(
+            "Unable to export RMV2 '{}' LOD {} as glTF '{}': {}",
+            input.display(),
+            lod_index,
+            output.display(),
+            error
+        )
+    })?;
+    save_gltf_to_disk(&gltf, output).map_err(|error| {
+        format!(
+            "Unable to write glTF '{}' for RMV2 '{}': {}",
+            output.display(),
+            input.display(),
+            error
+        )
+    })?;
+    if !output.is_file() {
+        return Err(format!(
+            "glTF export for '{}' reported success but output '{}' was not created",
+            input.display(),
+            output.display()
+        ));
+    }
+
+    Ok(gltf_export_result(
+        input.file_name().and_then(|name| name.to_str()).unwrap_or("<non-utf8>"),
+        output.file_name().and_then(|name| name.to_str()).unwrap_or("<non-utf8>"),
+        &model,
+        lod_index,
+        mesh_count,
+        vertex_count,
+        index_count,
+        materials,
+    ))
+}
+
 fn run(command: Command) -> Result<serde_json::Value, String> {
     match command {
         Command::InspectRmv2 {
             input,
             validate_decode,
         } => inspect_rmv2(&input, validate_decode),
+        Command::ExportRmv2Gltf { input, output, lod } => {
+            export_rmv2_gltf(&input, &output, lod)
+        }
         Command::CreateTestPack { spec, output } => {
             let document: serde_json::Value =
                 serde_json::from_slice(&fs::read(&spec).map_err(|e| e.to_string())?)
@@ -979,5 +1171,92 @@ mod tests {
         let first = serde_json::to_string(&inspect_rmv2(&input, false).unwrap()).unwrap();
         let second = serde_json::to_string(&inspect_rmv2(&input, false).unwrap()).unwrap();
         assert_eq!(first, second);
+    }
+
+    #[test]
+    fn export_highest_selects_lod_zero() {
+        assert_eq!(selected_lod_index(LodSelection::Highest, 4).unwrap(), 0);
+    }
+
+    #[test]
+    fn export_accepts_explicit_lod_and_rejects_invalid_indices() {
+        assert_eq!(selected_lod_index(LodSelection::Index(2), 4).unwrap(), 2);
+        assert!(selected_lod_index(LodSelection::Index(4), 4)
+            .unwrap_err()
+            .contains("contains 4 LOD"));
+        assert!(parse_lod_selection("not-a-lod").is_err());
+    }
+
+    #[test]
+    fn export_requires_a_gltf_output_path() {
+        assert!(output_gltf_path(Path::new("build/output.gltf")).is_ok());
+        assert!(output_gltf_path(Path::new("build/output.glb"))
+            .unwrap_err()
+            .contains(".gltf"));
+        assert!(output_gltf_path(Path::new("build/"))
+            .unwrap_err()
+            .contains(".gltf"));
+    }
+
+    #[test]
+    fn export_creates_output_parent_directory() {
+        let temp = tempdir().unwrap();
+        let output = temp.path().join("nested/output/praetorian-helmet.gltf");
+        ensure_gltf_output_parent(&output).unwrap();
+        assert!(output.parent().unwrap().is_dir());
+    }
+
+    #[test]
+    fn export_filters_model_to_exactly_one_selected_lod() {
+        let mut model = RigidModel::default();
+        *model.lods_mut() = vec![
+            rpfm_lib::files::rigidmodel::Lod::default(),
+            rpfm_lib::files::rigidmodel::Lod::default(),
+            rpfm_lib::files::rigidmodel::Lod::default(),
+        ];
+        let filtered = filtered_model_for_lod(&model, 1).unwrap();
+        assert_eq!(model.lods().len(), 3);
+        assert_eq!(filtered.lods().len(), 1);
+    }
+
+    #[test]
+    fn export_result_json_is_deterministic() {
+        let model = RigidModel::default();
+        let first = serde_json::to_string(&gltf_export_result(
+            "helmet.rigid_model_v2",
+            "helmet.gltf",
+            &model,
+            0,
+            1,
+            3,
+            3,
+            vec![json!({"name": "helmet", "type": "WeightedDirtmap"})],
+        ))
+        .unwrap();
+        let second = serde_json::to_string(&gltf_export_result(
+            "helmet.rigid_model_v2",
+            "helmet.gltf",
+            &model,
+            0,
+            1,
+            3,
+            3,
+            vec![json!({"name": "helmet", "type": "WeightedDirtmap"})],
+        ))
+        .unwrap();
+        assert_eq!(first, second);
+    }
+
+    #[test]
+    fn export_reports_input_failure_with_context() {
+        let temp = tempdir().unwrap();
+        let error = export_rmv2_gltf(
+            &temp.path().join("missing.rigid_model_v2"),
+            &temp.path().join("nested/output.gltf"),
+            LodSelection::Highest,
+        )
+        .unwrap_err();
+        assert!(error.contains("Unable to read RMV2"));
+        assert!(error.contains("missing.rigid_model_v2"));
     }
 }
