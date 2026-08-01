@@ -1,0 +1,3 @@
+<VARIANT_MESH>
+  <SLOT name="skin"><VARIANT_MESH_REFERENCE definition="recursive\\direct_child.variantmeshdefinition" /></SLOT>
+</VARIANT_MESH>

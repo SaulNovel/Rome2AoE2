@@ -1,0 +1,4 @@
+<VARIANT_MESH>
+  <SLOT name="first"><VARIANT_MESH_REFERENCE definition="recursive/duplicate_a.variantmeshdefinition" /></SLOT>
+  <SLOT name="second"><VARIANT_MESH_REFERENCE definition="recursive/duplicate_b.variantmeshdefinition" /></SLOT>
+</VARIANT_MESH>

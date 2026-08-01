@@ -1,0 +1,26 @@
+{
+	"version": 6,
+	"cmakeMinimumRequired": {
+		"major": 3,
+		"minor": 23,
+		"patch": 0
+	},
+
+	"configurePresets": [
+		{
+			"name": "x64-debug",
+			"displayName": "x64 Debug",
+			"generator": "Ninja",
+			"binaryDir": "${sourceDir}/out/build/x64-debug",
+
+			"architecture": {
+				"value": "x64",
+				"strategy": "external"
+			},
+
+			"cacheVariables": {
+				"CMAKE_BUILD_TYPE": "Debug"
+			}
+		}
+	]
+}

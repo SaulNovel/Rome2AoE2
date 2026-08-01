@@ -1,0 +1,4 @@
+<VARIANT_MESH>
+  <SLOT name="left"><VARIANT_MESH_REFERENCE definition="recursive/shared.variantmeshdefinition" /></SLOT>
+  <SLOT name="right"><VARIANT_MESH_REFERENCE definition="recursive\\shared.variantmeshdefinition" /></SLOT>
+</VARIANT_MESH>

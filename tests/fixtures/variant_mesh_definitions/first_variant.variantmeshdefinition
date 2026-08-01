@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<VARIANT_MESH model="VariantMeshes\\Units\\Body.RIGID_MODEL_V2">
+  <SLOT name="type">
+    <VARIANT_MESH>
+      <SLOT name="helmet">
+        <VARIANT_MESH model="VariantMeshes/Units/Helmet.RIGID_MODEL_V2">
+          <SLOT name="crest">
+            <VARIANT_MESH model="VariantMeshes/Units/Crest.RIGID_MODEL_V2" />
+            <VARIANT_MESH model="VariantMeshes/Units/Skipped_Crest.RIGID_MODEL_V2" />
+          </SLOT>
+        </VARIANT_MESH>
+        <VARIANT_MESH model="VariantMeshes/Units/Skipped_Helmet.RIGID_MODEL_V2" />
+      </SLOT>
+      <SLOT name="shield">
+        <VARIANT_MESH model="VariantMeshes/Units/Shield.RIGID_MODEL_V2"
+                      decal_diffuse="VariantMeshes/Textures/Shield_Diffuse.DDS"
+                      decal_normal="VariantMeshes/Textures/Shield_Normal.DDS" />
+      </SLOT>
+    </VARIANT_MESH>
+    <VARIANT_MESH model="VariantMeshes/Units/Skipped_Type.RIGID_MODEL_V2" />
+  </SLOT>
+</VARIANT_MESH>

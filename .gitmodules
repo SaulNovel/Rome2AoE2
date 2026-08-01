@@ -1,0 +1,9 @@
+[submodule "third_party/googletest"]
+	path = third_party/googletest
+	url = https://github.com/google/googletest.git
+[submodule "third_party/rpfm"]
+	path = third_party/rpfm
+	url = https://github.com/Frodo45127/rpfm.git
+[submodule "third_party/AoE2ScenarioParser"]
+	path = third_party/AoE2ScenarioParser
+	url = https://github.com/KSneijders/AoE2ScenarioParser.git
