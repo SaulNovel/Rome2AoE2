@@ -6,7 +6,7 @@ use std::process::ExitCode;
 use std::sync::OnceLock;
 
 use rpfm_lib::files::{pack::Pack, Container, ContainerPath, FileType, RFile};
-use rpfm_lib::files::{rigidmodel::RigidModel, Decodeable};
+use rpfm_lib::files::{rigidmodel::{MeshBlock, RigidModel}, Decodeable};
 use rpfm_extensions::dependencies::Dependencies;
 use rpfm_extensions::gltf::{gltf_from_rigid, save_gltf_to_disk};
 use rpfm_lib::games::supported_games::{SupportedGames, KEY_ROME_2};
@@ -719,6 +719,66 @@ fn gltf_export_result(
     })
 }
 
+fn rmv2_material_metadata(mesh_block: &MeshBlock) -> serde_json::Value {
+    let material = mesh_block.material();
+    json!({
+        "attachment_count": material.attachment_points().len(),
+        "name": material.name(),
+        "parameter_counts": {
+            "float": material.params_f32().len(),
+            "integer": material.params_i32().len(),
+            "string": material.params_string().len(),
+            "vector4": material.params_vector4df32().len(),
+        },
+        "parameters": {
+            "float": material.params_f32(),
+            "integer": material.params_i32(),
+            "string": material.params_string(),
+            "vector4": material.params_vector4df32().iter().map(|(key, value)| json!([key, [value[0], value[1], value[2], value[3]]])).collect::<Vec<_>>(),
+        },
+        "texture_directory": material.texture_directory(),
+        "textures": material.textures().iter().map(|texture| json!({
+            "path": texture.path(),
+            "type": format!("{:?}", texture.tex_type()),
+        })).collect::<Vec<_>>(),
+        "type": format!("{:?}", mesh_block.mesh().material_type()),
+    })
+}
+
+fn preserve_gltf_material_identity(
+    output: &Path,
+    source_materials: &[serde_json::Value],
+) -> Result<(), String> {
+    let mut document: serde_json::Value = serde_json::from_slice(
+        &fs::read(output)
+            .map_err(|error| format!("Unable to read generated glTF '{}': {}", output.display(), error))?,
+    )
+    .map_err(|error| format!("Generated glTF '{}' is invalid JSON: {}", output.display(), error))?;
+    let gltf_materials = document
+        .get_mut("materials")
+        .and_then(serde_json::Value::as_array_mut)
+        .ok_or_else(|| format!("Generated glTF '{}' has no material array", output.display()))?;
+    if gltf_materials.len() != source_materials.len() {
+        return Err(format!(
+            "Generated glTF '{}' has {} material(s), but selected RMV2 LOD has {} mesh material(s)",
+            output.display(), gltf_materials.len(), source_materials.len()
+        ));
+    }
+    for (gltf_material, source_material) in gltf_materials.iter_mut().zip(source_materials) {
+        let source_name = source_material
+            .get("name")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| "RMV2 material metadata has no string name".to_owned())?;
+        let object = gltf_material
+            .as_object_mut()
+            .ok_or_else(|| "Generated glTF material is not an object".to_owned())?;
+        object.insert("name".to_owned(), json!(source_name));
+        object.insert("extras".to_owned(), json!({"rome2aoe2": source_material}));
+    }
+    fs::write(output, serde_json::to_vec_pretty(&document).expect("glTF JSON must serialize"))
+        .map_err(|error| format!("Unable to update glTF material metadata '{}': {}", output.display(), error))
+}
+
 fn export_rmv2_gltf(
     input: &Path,
     output: &Path,
@@ -743,15 +803,14 @@ fn export_rmv2_gltf(
         .iter()
         .map(|mesh| mesh.mesh().indices().len())
         .sum::<usize>();
-    let materials = selected_lod
+    let source_materials = selected_lod
         .mesh_blocks()
         .iter()
-        .map(|mesh| {
-            json!({
-                "name": mesh.material().name(),
-                "type": format!("{:?}", mesh.mesh().material_type()),
-            })
-        })
+        .map(rmv2_material_metadata)
+        .collect::<Vec<_>>();
+    let materials = source_materials
+        .iter()
+        .map(|material| json!({"name": material["name"], "type": material["type"]}))
         .collect::<Vec<_>>();
 
     // The upstream exporter emits one scene per entry in `lods`. Keep a clone so
@@ -784,6 +843,7 @@ fn export_rmv2_gltf(
             output.display()
         ));
     }
+    preserve_gltf_material_identity(output, &source_materials)?;
 
     Ok(gltf_export_result(
         input.file_name().and_then(|name| name.to_str()).unwrap_or("<non-utf8>"),
@@ -1245,6 +1305,58 @@ mod tests {
         ))
         .unwrap();
         assert_eq!(first, second);
+    }
+
+    fn source_material(name: &str, material_type: &str, texture: &str) -> serde_json::Value {
+        json!({
+            "attachment_count": 0,
+            "name": name,
+            "parameter_counts": {"float": 0, "integer": 0, "string": 0, "vector4": 0},
+            "parameters": {"float": [], "integer": [], "string": [], "vector4": []},
+            "texture_directory": "variantmeshes/test/tex/",
+            "textures": [{"path": texture, "type": "Diffuse"}],
+            "type": material_type,
+        })
+    }
+
+    #[test]
+    fn gltf_postprocessing_preserves_material_identity_without_touching_geometry() {
+        let temp = tempdir().unwrap();
+        let output = temp.path().join("identity.gltf");
+        let document = json!({
+            "asset": {"version": "2.0"},
+            "accessors": [{"count": 3}],
+            "buffers": [{"uri": "data:application/octet-stream;base64,AA==", "byteLength": 1}],
+            "materials": [{}, {}],
+        });
+        fs::write(&output, serde_json::to_vec_pretty(&document).unwrap()).unwrap();
+        let source = vec![
+            source_material("helmet", "WeightedDirtmap", "helmet_diffuse.dds"),
+            source_material("crest", "DecalDirtmap", "crest_diffuse.dds"),
+        ];
+        preserve_gltf_material_identity(&output, &source).unwrap();
+        let result: serde_json::Value = serde_json::from_slice(&fs::read(&output).unwrap()).unwrap();
+        assert_eq!(result["materials"][0]["name"], "helmet");
+        assert_eq!(result["materials"][1]["name"], "crest");
+        assert_eq!(result["materials"][0]["extras"]["rome2aoe2"]["type"], "WeightedDirtmap");
+        assert_eq!(result["materials"][0]["extras"]["rome2aoe2"]["textures"][0]["path"], "helmet_diffuse.dds");
+        assert!(result.get("images").is_none());
+        assert_eq!(result["accessors"], document["accessors"]);
+        assert_eq!(result["buffers"], document["buffers"]);
+    }
+
+    #[test]
+    fn gltf_material_postprocessing_is_deterministic() {
+        let temp = tempdir().unwrap();
+        let document = json!({"asset": {"version": "2.0"}, "materials": [{}]});
+        let source = vec![source_material("helmet", "WeightedDirtmap", "helmet_diffuse.dds")];
+        let first = temp.path().join("first.gltf");
+        let second = temp.path().join("second.gltf");
+        for output in [&first, &second] {
+            fs::write(output, serde_json::to_vec_pretty(&document).unwrap()).unwrap();
+            preserve_gltf_material_identity(output, &source).unwrap();
+        }
+        assert_eq!(fs::read(first).unwrap(), fs::read(second).unwrap());
     }
 
     #[test]
