@@ -129,3 +129,11 @@ add_test(
 set_tests_properties(VariantMeshDefinitionResolverTests PROPERTIES
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
 )
+
+add_test(
+    NAME VariantMeshDefinitionAcquisitionTests
+    COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_SOURCE_DIR}/tests/VariantMeshDefinitionAcquisitionTests.py
+)
+set_tests_properties(VariantMeshDefinitionAcquisitionTests PROPERTIES
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+)

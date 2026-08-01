@@ -3,6 +3,9 @@ out/
 build/
 bin/
 
+# Rust helper build output (Cargo.lock is committed for reproducible helper builds).
+/tools/rome2_pack/target/
+
 # Visual Studio
 .vs/
 

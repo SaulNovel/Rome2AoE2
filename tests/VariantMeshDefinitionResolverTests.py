@@ -103,11 +103,13 @@ class VariantMeshDefinitionResolverTests(unittest.TestCase):
         )
 
     def test_reports_missing_referenced_definition_with_context(self):
-        with self.assertRaisesRegex(
-            MissingVariantMeshDefinitionError,
-            r"referring_definition='recursive/missing_root\.variantmeshdefinition'.*referenced_definition='recursive/not_present\.variantmeshdefinition'.*slot_path='missing-slot'.*reference_chain='recursive/missing_root\.variantmeshdefinition -> recursive/not_present\.variantmeshdefinition'",
-        ):
+        with self.assertRaisesRegex(MissingVariantMeshDefinitionError, r"referring_definition='recursive/missing_root\.variantmeshdefinition'.*referenced_definition='recursive/not_present\.variantmeshdefinition'.*slot_path='missing-slot'.*reference_chain='recursive/missing_root\.variantmeshdefinition -> recursive/not_present\.variantmeshdefinition'") as captured:
             resolve(RECURSIVE / "missing_root.variantmeshdefinition", FIXTURE_ROOT)
+        error = captured.exception
+        self.assertEqual(error.referring_definition, "recursive/missing_root.variantmeshdefinition")
+        self.assertEqual(error.referenced_definition, "recursive/not_present.variantmeshdefinition")
+        self.assertEqual(error.slot_path, "missing-slot")
+        self.assertEqual(error.reference_chain, ["recursive/missing_root.variantmeshdefinition", "recursive/not_present.variantmeshdefinition"])
 
     def test_deduplicates_models_using_normalized_key_but_preserves_first_original_path(self):
         manifest = resolve(RECURSIVE / "duplicate_root.variantmeshdefinition", FIXTURE_ROOT)
