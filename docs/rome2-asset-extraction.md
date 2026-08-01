@@ -104,3 +104,12 @@ were not direct archive paths in the configured model packs and are recorded as
 missing without adding extensions or transformations. Logical decal resolution
 is a separate future stage: investigate its relation to texture/material
 resources, relevant pack types, and model/material metadata.
+
+## RMV2 decoder compatibility
+
+Rome II RMV2 v6 inspection uses a small managed overlay for three
+DefaultMaterial-compatible RPFM material IDs. The overlay is applied only during
+developer setup and is documented in [RMV2 investigation](RESEARCH/RMV2.md).
+It currently enables decoder-based inspection of all ten extracted Praetorian
+Guard models; it does not add geometry export, texture resolution, or animation
+support.

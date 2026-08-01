@@ -1,10 +1,14 @@
 use std::env;
 use std::fs;
+use std::io::Cursor;
 use std::path::{Component, Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::OnceLock;
 
 use rpfm_lib::files::{pack::Pack, Container, ContainerPath, FileType, RFile};
+use rpfm_lib::files::{rigidmodel::{MeshBlock, RigidModel}, Decodeable};
+use rpfm_extensions::dependencies::Dependencies;
+use rpfm_extensions::gltf::{gltf_from_rigid, save_gltf_to_disk};
 use rpfm_lib::games::supported_games::{SupportedGames, KEY_ROME_2};
 use rpfm_lib::games::{pfh_file_type::PFHFileType, pfh_version::PFHVersion};
 use serde_json::json;
@@ -37,10 +41,25 @@ enum Command {
         spec: PathBuf,
         output: PathBuf,
     },
+    InspectRmv2 {
+        input: PathBuf,
+        validate_decode: bool,
+    },
+    ExportRmv2Gltf {
+        input: PathBuf,
+        output: PathBuf,
+        lod: LodSelection,
+    },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LodSelection {
+    Highest,
+    Index(usize),
 }
 
 fn usage() -> &'static str {
-    "Usage:\n  rome2aoe2-pack list --pack <pack-file>\n  rome2aoe2-pack contains --pack <pack-file> --path <pack-relative-path>\n  rome2aoe2-pack extract --pack <pack-file> --path <pack-relative-path> --output-root <directory>\n  rome2aoe2-pack create-test-pack --spec <json-file> --output <pack-file>"
+    "Usage:\n  rome2aoe2-pack list --pack <pack-file>\n  rome2aoe2-pack contains --pack <pack-file> --path <pack-relative-path>\n  rome2aoe2-pack extract --pack <pack-file> --path <pack-relative-path> --output-root <directory>\n  rome2aoe2-pack create-test-pack --spec <json-file> --output <pack-file>\n  rome2aoe2-pack inspect-rmv2 --input <local-rmv2-file> [--decode]\n  rome2aoe2-pack export-rmv2-gltf --input <local-rmv2-file> --output <output.gltf> --lod <highest|index>"
 }
 
 fn parse_pack_relative_path(value: &str) -> Result<PackRelativePath, String> {
@@ -94,10 +113,17 @@ fn parse_command(arguments: &[String]) -> Result<Command, String> {
     let mut output_root = None;
     let mut spec = None;
     let mut output = None;
+    let mut input = None;
+    let mut validate_decode = false;
+    let mut lod = None;
     let mut index = 1;
     while index < arguments.len() {
         let option = arguments[index].as_str();
         index += 1;
+        if option == "--decode" {
+            validate_decode = true;
+            continue;
+        }
         if index == arguments.len() {
             return Err(format!("Missing value for '{}'.\n{}", option, usage()));
         }
@@ -109,6 +135,8 @@ fn parse_command(arguments: &[String]) -> Result<Command, String> {
             "--output-root" => output_root = Some(PathBuf::from(value)),
             "--spec" => spec = Some(PathBuf::from(value)),
             "--output" => output = Some(PathBuf::from(value)),
+            "--input" => input = Some(PathBuf::from(value)),
+            "--lod" => lod = Some(parse_lod_selection(value)?),
             _ => return Err(format!("Unknown option '{}'.\n{}", option, usage())),
         }
     }
@@ -117,6 +145,19 @@ fn parse_command(arguments: &[String]) -> Result<Command, String> {
         return Ok(Command::CreateTestPack {
             spec: spec.ok_or_else(|| "Missing --spec".to_owned())?,
             output: output.ok_or_else(|| "Missing --output".to_owned())?,
+        });
+    }
+    if operation == "inspect-rmv2" {
+        return Ok(Command::InspectRmv2 {
+            input: input.ok_or_else(|| "Missing --input".to_owned())?,
+            validate_decode,
+        });
+    }
+    if operation == "export-rmv2-gltf" {
+        return Ok(Command::ExportRmv2Gltf {
+            input: input.ok_or_else(|| "Missing --input".to_owned())?,
+            output: output.ok_or_else(|| "Missing --output".to_owned())?,
+            lod: lod.ok_or_else(|| "Missing --lod".to_owned())?,
         });
     }
     let pack = pack.ok_or_else(|| format!("Missing --pack.\n{}", usage()))?;
@@ -134,6 +175,15 @@ fn parse_command(arguments: &[String]) -> Result<Command, String> {
         }),
         _ => Err(format!("Invalid options for '{}'.\n{}", operation, usage())),
     }
+}
+
+fn parse_lod_selection(value: &str) -> Result<LodSelection, String> {
+    if value == "highest" {
+        return Ok(LodSelection::Highest);
+    }
+    value.parse::<usize>().map(LodSelection::Index).map_err(|_| {
+        format!("Invalid --lod '{}': expected 'highest' or a non-negative LOD index", value)
+    })
 }
 
 fn rome_2_game() -> Result<&'static rpfm_lib::games::GameInfo, String> {
@@ -224,8 +274,598 @@ fn result_pack_name(pack: &Path) -> String {
         .to_string()
 }
 
+const RMV2_MAGIC: &[u8; 4] = b"RMV2";
+const RMV2_V6_HEADER_BYTES: usize = 140;
+const RMV2_V6_LOD_HEADER_BYTES: usize = 20;
+const RMV2_V6_MESH_HEADER_BYTES: usize = 24;
+const RMV2_V6_MATERIAL_OFFSET: usize = 80;
+const DEFAULT_MATERIAL_FIXED_BYTES: usize = 860;
+
+fn rmv2_u16(bytes: &[u8], offset: usize, context: &str) -> Result<u16, String> {
+    let value = bytes
+        .get(offset..offset + 2)
+        .ok_or_else(|| format!("Malformed RMV2: {} is truncated", context))?;
+    Ok(u16::from_le_bytes(
+        value.try_into().expect("slice length checked"),
+    ))
+}
+
+fn rmv2_u32(bytes: &[u8], offset: usize, context: &str) -> Result<u32, String> {
+    let value = bytes
+        .get(offset..offset + 4)
+        .ok_or_else(|| format!("Malformed RMV2: {} is truncated", context))?;
+    Ok(u32::from_le_bytes(
+        value.try_into().expect("slice length checked"),
+    ))
+}
+
+fn rmv2_f32(bytes: &[u8], offset: usize, context: &str) -> Result<f32, String> {
+    let value = bytes
+        .get(offset..offset + 4)
+        .ok_or_else(|| format!("Malformed RMV2: {} is truncated", context))?;
+    Ok(f32::from_le_bytes(
+        value.try_into().expect("slice length checked"),
+    ))
+}
+
+fn rmv2_fixed_string(
+    bytes: &[u8],
+    offset: usize,
+    length: usize,
+    context: &str,
+) -> Result<String, String> {
+    let value = bytes
+        .get(offset..offset + length)
+        .ok_or_else(|| format!("Malformed RMV2: {} is truncated", context))?;
+    let value = value
+        .split(|byte| *byte == 0)
+        .next()
+        .expect("a slice always has a first segment");
+    std::str::from_utf8(value)
+        .map(str::to_owned)
+        .map_err(|error| format!("Malformed RMV2: {} is not UTF-8: {}", context, error))
+}
+
+fn checked_rmv2_add(left: usize, right: usize, context: &str) -> Result<usize, String> {
+    left.checked_add(right)
+        .ok_or_else(|| format!("Malformed RMV2: {} overflows", context))
+}
+
+fn material_type_name(material_type: u16) -> Option<&'static str> {
+    match material_type {
+        65 => Some("Weighted"),
+        68 => Some("DefaultMaterial"),
+        70 => Some("WeightedSkin"),
+        72 => Some("DecalDirtmap"),
+        73 => Some("Dirtmap"),
+        79 => Some("WeightedDirtmap"),
+        82 => Some("WeightedSkinDirtmap"),
+        _ => None,
+    }
+}
+
+fn vertex_format_name(vertex_format: u16) -> Option<&'static str> {
+    match vertex_format {
+        0 => Some("Static"),
+        1 => Some("Collision"),
+        3 => Some("Weighted"),
+        4 => Some("Cinematic"),
+        5 => Some("Grass"),
+        8 => Some("Uk8"),
+        12 => Some("Uk12"),
+        25 => Some("ClothSim"),
+        _ => None,
+    }
+}
+
+fn texture_type_name(texture_type: i32) -> Option<&'static str> {
+    match texture_type {
+        0 => Some("Diffuse"),
+        1 => Some("Normal"),
+        3 => Some("Mask"),
+        5 => Some("AmbientOcclusion"),
+        7 => Some("TilingDirtUV2"),
+        8 => Some("DirtAlphaMask"),
+        10 => Some("SkinMask"),
+        11 => Some("Specular"),
+        12 => Some("GlossMap"),
+        13 => Some("DecalDirtmap"),
+        14 => Some("DecalDirtmask"),
+        15 => Some("DecalMask"),
+        17 => Some("DiffuseDamage"),
+        27 => Some("BaseColor"),
+        29 => Some("MaterialMap"),
+        _ => None,
+    }
+}
+
+fn parse_default_layout_metadata(
+    bytes: &[u8],
+    offset: usize,
+    material_bytes: usize,
+) -> Result<serde_json::Value, String> {
+    let material_end = checked_rmv2_add(offset, material_bytes, "material block end")?;
+    if material_end > bytes.len() || material_bytes < DEFAULT_MATERIAL_FIXED_BYTES {
+        return Err("default material block is truncated".to_owned());
+    }
+
+    let vertex_format = rmv2_u16(bytes, offset, "material vertex format")?;
+    let name = rmv2_fixed_string(bytes, offset + 2, 32, "material name")?;
+    let texture_directory =
+        rmv2_fixed_string(bytes, offset + 34, 256, "material texture directory")?;
+    let attachment_count = rmv2_u32(bytes, offset + 712, "material attachment count")? as usize;
+    let texture_count = rmv2_u32(bytes, offset + 716, "material texture count")? as usize;
+    let string_param_count =
+        rmv2_u32(bytes, offset + 720, "material string parameter count")? as usize;
+    let float_param_count =
+        rmv2_u32(bytes, offset + 724, "material float parameter count")? as usize;
+    let integer_param_count =
+        rmv2_u32(bytes, offset + 728, "material integer parameter count")? as usize;
+    let vector_param_count =
+        rmv2_u32(bytes, offset + 732, "material vector parameter count")? as usize;
+
+    let attachment_bytes = attachment_count
+        .checked_mul(84)
+        .ok_or_else(|| "default material attachment data overflows".to_owned())?;
+    let texture_bytes = texture_count
+        .checked_mul(260)
+        .ok_or_else(|| "default material texture data overflows".to_owned())?;
+    let textures_offset = checked_rmv2_add(
+        checked_rmv2_add(
+            offset + DEFAULT_MATERIAL_FIXED_BYTES,
+            attachment_bytes,
+            "texture table offset",
+        )?,
+        0,
+        "texture table offset",
+    )?;
+    let mut cursor = checked_rmv2_add(textures_offset, texture_bytes, "parameter table offset")?;
+    if cursor > material_end {
+        return Err(
+            "default material attachment or texture table exceeds material block".to_owned(),
+        );
+    }
+
+    let mut textures = Vec::with_capacity(texture_count);
+    for texture_index in 0..texture_count {
+        let texture_offset =
+            checked_rmv2_add(textures_offset, texture_index * 260, "texture entry offset")?;
+        let texture_type = i32::from_le_bytes(
+            bytes
+                .get(texture_offset..texture_offset + 4)
+                .ok_or_else(|| "default material texture entry is truncated".to_owned())?
+                .try_into()
+                .expect("slice length checked"),
+        );
+        let path = rmv2_fixed_string(bytes, texture_offset + 4, 256, "texture path")?;
+        textures.push(json!({
+            "path": path,
+            "type": texture_type,
+            "type_name": texture_type_name(texture_type),
+        }));
+    }
+
+    for _ in 0..string_param_count {
+        let length_offset = checked_rmv2_add(cursor, 4, "string parameter length")?;
+        let length = rmv2_u16(bytes, length_offset, "string parameter length")? as usize;
+        cursor = checked_rmv2_add(cursor, 6, "string parameter header")?;
+        cursor = checked_rmv2_add(cursor, length, "string parameter value")?;
+        if cursor > material_end {
+            return Err("default material string parameter exceeds material block".to_owned());
+        }
+    }
+    cursor = checked_rmv2_add(
+        cursor,
+        float_param_count
+            .checked_mul(8)
+            .ok_or_else(|| "default material float parameter data overflows".to_owned())?,
+        "float parameter table",
+    )?;
+    cursor = checked_rmv2_add(
+        cursor,
+        integer_param_count
+            .checked_mul(8)
+            .ok_or_else(|| "default material integer parameter data overflows".to_owned())?,
+        "integer parameter table",
+    )?;
+    cursor = checked_rmv2_add(
+        cursor,
+        vector_param_count
+            .checked_mul(20)
+            .ok_or_else(|| "default material vector parameter data overflows".to_owned())?,
+        "vector parameter table",
+    )?;
+    if cursor != material_end {
+        return Err(format!(
+            "default material layout consumes {} bytes, but mesh header reserves {} bytes",
+            cursor - offset,
+            material_bytes
+        ));
+    }
+
+    Ok(json!({
+        "attachment_count": attachment_count,
+        "layout": "default-material-compatible",
+        "name": name,
+        "parameter_counts": {
+            "float": float_param_count,
+            "integer": integer_param_count,
+            "string": string_param_count,
+            "vector4": vector_param_count,
+        },
+        "texture_directory": texture_directory,
+        "textures": textures,
+        "vertex_format": vertex_format,
+        "vertex_format_name": vertex_format_name(vertex_format),
+    }))
+}
+
+fn inspect_rmv2(input: &Path, validate_decode: bool) -> Result<serde_json::Value, String> {
+    let bytes = fs::read(input)
+        .map_err(|error| format!("Unable to read RMV2 '{}': {}", input.display(), error))?;
+    if bytes.get(..4) != Some(RMV2_MAGIC) {
+        return Err(format!(
+            "Invalid RMV2 '{}': expected RMV2 magic",
+            input.display()
+        ));
+    }
+    let rmv2_version = rmv2_u32(&bytes, 4, "version")?;
+    if rmv2_version != 6 {
+        return Err(format!(
+            "Unsupported RMV2 version {} in '{}': metadata inspection currently supports Rome II RMV2 v6",
+            rmv2_version,
+            input.display()
+        ));
+    }
+    if validate_decode {
+        let mut reader = Cursor::new(bytes.clone());
+        RigidModel::decode(&mut reader, &None)
+            .map_err(|error| format!("Unable to decode RMV2 '{}': {}", input.display(), error))?;
+    }
+
+    let lod_count = rmv2_u16(&bytes, 8, "LOD count")? as usize;
+    let skeleton_id = rmv2_fixed_string(&bytes, 12, 128, "skeleton id")?;
+    let lod_headers_end = checked_rmv2_add(
+        RMV2_V6_HEADER_BYTES,
+        lod_count
+            .checked_mul(RMV2_V6_LOD_HEADER_BYTES)
+            .ok_or_else(|| "Malformed RMV2: LOD header table overflows".to_owned())?,
+        "LOD header table end",
+    )?;
+    if lod_headers_end > bytes.len() {
+        return Err("Malformed RMV2: LOD header table is truncated".to_owned());
+    }
+
+    let mut lods = Vec::with_capacity(lod_count);
+    for lod_index in 0..lod_count {
+        let header_offset = RMV2_V6_HEADER_BYTES + lod_index * RMV2_V6_LOD_HEADER_BYTES;
+        let mesh_count = rmv2_u32(&bytes, header_offset, "LOD mesh count")? as usize;
+        let mesh_offset = rmv2_u32(&bytes, header_offset + 12, "LOD mesh data offset")? as usize;
+        let visibility_distance = rmv2_f32(&bytes, header_offset + 16, "LOD visibility distance")?;
+        let mut offset = mesh_offset;
+        let mut meshes = Vec::with_capacity(mesh_count);
+        let mut vertex_count = 0usize;
+        let mut index_count = 0usize;
+
+        for mesh_index in 0..mesh_count {
+            let header_end =
+                checked_rmv2_add(offset, RMV2_V6_MESH_HEADER_BYTES, "mesh header end")?;
+            if header_end > bytes.len() {
+                return Err(format!(
+                    "Malformed RMV2: LOD {} mesh {} header is truncated",
+                    lod_index, mesh_index
+                ));
+            }
+            let material_type = rmv2_u16(&bytes, offset, "mesh material type")?;
+            let section_bytes = rmv2_u32(&bytes, offset + 4, "mesh section size")? as usize;
+            let vertex_offset = rmv2_u32(&bytes, offset + 8, "mesh vertex offset")? as usize;
+            let mesh_vertex_count = rmv2_u32(&bytes, offset + 12, "mesh vertex count")? as usize;
+            let index_offset = rmv2_u32(&bytes, offset + 16, "mesh index offset")? as usize;
+            let mesh_index_count = rmv2_u32(&bytes, offset + 20, "mesh index count")? as usize;
+            let section_end = checked_rmv2_add(offset, section_bytes, "mesh section end")?;
+            if section_end > bytes.len()
+                || vertex_offset < RMV2_V6_MATERIAL_OFFSET
+                || index_offset < vertex_offset
+                || index_offset > section_bytes
+            {
+                return Err(format!(
+                    "Malformed RMV2: LOD {} mesh {} has invalid section offsets",
+                    lod_index, mesh_index
+                ));
+            }
+
+            let material_offset =
+                checked_rmv2_add(offset, RMV2_V6_MATERIAL_OFFSET, "material offset")?;
+            let material_bytes = vertex_offset - RMV2_V6_MATERIAL_OFFSET;
+            let material =
+                match parse_default_layout_metadata(&bytes, material_offset, material_bytes) {
+                    Ok(material) => material,
+                    Err(reason) => json!({
+                        "layout": "unrecognized",
+                        "layout_reason": reason,
+                    }),
+                };
+            let min_bounds = [
+                rmv2_f32(&bytes, offset + 24, "mesh minimum bound x")?,
+                rmv2_f32(&bytes, offset + 28, "mesh minimum bound y")?,
+                rmv2_f32(&bytes, offset + 32, "mesh minimum bound z")?,
+            ];
+            let max_bounds = [
+                rmv2_f32(&bytes, offset + 36, "mesh maximum bound x")?,
+                rmv2_f32(&bytes, offset + 40, "mesh maximum bound y")?,
+                rmv2_f32(&bytes, offset + 44, "mesh maximum bound z")?,
+            ];
+            vertex_count = vertex_count
+                .checked_add(mesh_vertex_count)
+                .ok_or_else(|| "Malformed RMV2: LOD vertex count overflows".to_owned())?;
+            index_count = index_count
+                .checked_add(mesh_index_count)
+                .ok_or_else(|| "Malformed RMV2: LOD index count overflows".to_owned())?;
+            meshes.push(json!({
+                "bounds": {"max": max_bounds, "min": min_bounds},
+                "index": mesh_index,
+                "index_count": mesh_index_count,
+                "material": material,
+                "material_block_bytes": material_bytes,
+                "material_type": material_type,
+                "material_type_name": material_type_name(material_type),
+                "triangle_count": mesh_index_count / 3,
+                "vertex_count": mesh_vertex_count,
+            }));
+            offset = section_end;
+        }
+
+        lods.push(json!({
+            "index": lod_index,
+            "index_count": index_count,
+            "mesh_count": mesh_count,
+            "meshes": meshes,
+            "triangle_count": index_count / 3,
+            "vertex_count": vertex_count,
+            "visibility_distance": visibility_distance,
+        }));
+    }
+
+    Ok(json!({
+        "decoded_with_rpfm":validate_decode,
+        "format":"rome2aoe2.rmv2-inspection",
+        "highest_detail_lod":0,
+        "input":input.to_string_lossy(),
+        "lod_count":lod_count,
+        "lods":lods,
+        "rmv2_version":rmv2_version,
+        "skeleton_id":skeleton_id,
+        "version":1,
+    }))
+}
+
+fn selected_lod_index(selection: LodSelection, lod_count: usize) -> Result<usize, String> {
+    let index = match selection {
+        // RPFM documents the decoded LOD vector as highest-to-lowest quality.
+        LodSelection::Highest => 0,
+        LodSelection::Index(index) => index,
+    };
+    if index >= lod_count {
+        return Err(format!(
+            "Invalid LOD index {}: RMV2 contains {} LOD(s)",
+            index, lod_count
+        ));
+    }
+    Ok(index)
+}
+
+fn output_gltf_path(output: &Path) -> Result<(), String> {
+    if output.file_name().is_none() {
+        return Err(format!("Invalid glTF output path '{}': file name is required", output.display()));
+    }
+    if !output
+        .extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("gltf"))
+    {
+        return Err(format!(
+            "Invalid glTF output path '{}': expected a .gltf file",
+            output.display()
+        ));
+    }
+    Ok(())
+}
+
+fn ensure_gltf_output_parent(output: &Path) -> Result<(), String> {
+    if let Some(parent) = output.parent() {
+        fs::create_dir_all(parent).map_err(|error| {
+            format!(
+                "Unable to create glTF output directory '{}': {}",
+                parent.display(),
+                error
+            )
+        })?;
+    }
+    Ok(())
+}
+
+fn filtered_model_for_lod(model: &RigidModel, lod_index: usize) -> Result<RigidModel, String> {
+    let selected_lod = model
+        .lods()
+        .get(lod_index)
+        .cloned()
+        .ok_or_else(|| format!("Invalid LOD index {}: RMV2 contains {} LOD(s)", lod_index, model.lods().len()))?;
+    let mut filtered_model = model.clone();
+    *filtered_model.lods_mut() = vec![selected_lod];
+    Ok(filtered_model)
+}
+
+fn gltf_export_result(
+    input_name: &str,
+    output_name: &str,
+    model: &RigidModel,
+    lod_index: usize,
+    mesh_count: usize,
+    vertex_count: usize,
+    index_count: usize,
+    materials: Vec<serde_json::Value>,
+) -> serde_json::Value {
+    json!({
+        "format": "rome2aoe2.rmv2-gltf-export",
+        "input": input_name,
+        "material_types": materials,
+        "mesh_count": mesh_count,
+        "output": output_name,
+        "rmv2_version": model.version(),
+        "selected_lod": lod_index,
+        "skeleton_id": model.skeleton_id(),
+        "triangle_count": index_count / 3,
+        "vertex_count": vertex_count,
+        "version": 1,
+    })
+}
+
+fn rmv2_material_metadata(mesh_block: &MeshBlock) -> serde_json::Value {
+    let material = mesh_block.material();
+    json!({
+        "attachment_count": material.attachment_points().len(),
+        "name": material.name(),
+        "parameter_counts": {
+            "float": material.params_f32().len(),
+            "integer": material.params_i32().len(),
+            "string": material.params_string().len(),
+            "vector4": material.params_vector4df32().len(),
+        },
+        "parameters": {
+            "float": material.params_f32(),
+            "integer": material.params_i32(),
+            "string": material.params_string(),
+            "vector4": material.params_vector4df32().iter().map(|(key, value)| json!([key, [value[0], value[1], value[2], value[3]]])).collect::<Vec<_>>(),
+        },
+        "texture_directory": material.texture_directory(),
+        "textures": material.textures().iter().map(|texture| json!({
+            "path": texture.path(),
+            "type": format!("{:?}", texture.tex_type()),
+        })).collect::<Vec<_>>(),
+        "type": format!("{:?}", mesh_block.mesh().material_type()),
+    })
+}
+
+fn preserve_gltf_material_identity(
+    output: &Path,
+    source_materials: &[serde_json::Value],
+) -> Result<(), String> {
+    let mut document: serde_json::Value = serde_json::from_slice(
+        &fs::read(output)
+            .map_err(|error| format!("Unable to read generated glTF '{}': {}", output.display(), error))?,
+    )
+    .map_err(|error| format!("Generated glTF '{}' is invalid JSON: {}", output.display(), error))?;
+    let gltf_materials = document
+        .get_mut("materials")
+        .and_then(serde_json::Value::as_array_mut)
+        .ok_or_else(|| format!("Generated glTF '{}' has no material array", output.display()))?;
+    if gltf_materials.len() != source_materials.len() {
+        return Err(format!(
+            "Generated glTF '{}' has {} material(s), but selected RMV2 LOD has {} mesh material(s)",
+            output.display(), gltf_materials.len(), source_materials.len()
+        ));
+    }
+    for (gltf_material, source_material) in gltf_materials.iter_mut().zip(source_materials) {
+        let source_name = source_material
+            .get("name")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| "RMV2 material metadata has no string name".to_owned())?;
+        let object = gltf_material
+            .as_object_mut()
+            .ok_or_else(|| "Generated glTF material is not an object".to_owned())?;
+        object.insert("name".to_owned(), json!(source_name));
+        object.insert("extras".to_owned(), json!({"rome2aoe2": source_material}));
+    }
+    fs::write(output, serde_json::to_vec_pretty(&document).expect("glTF JSON must serialize"))
+        .map_err(|error| format!("Unable to update glTF material metadata '{}': {}", output.display(), error))
+}
+
+fn export_rmv2_gltf(
+    input: &Path,
+    output: &Path,
+    selection: LodSelection,
+) -> Result<serde_json::Value, String> {
+    output_gltf_path(output)?;
+    let bytes = fs::read(input)
+        .map_err(|error| format!("Unable to read RMV2 '{}': {}", input.display(), error))?;
+    let mut reader = Cursor::new(bytes);
+    let model = RigidModel::decode(&mut reader, &None)
+        .map_err(|error| format!("Unable to decode RMV2 '{}': {}", input.display(), error))?;
+    let lod_index = selected_lod_index(selection, model.lods().len())?;
+    let selected_lod = model.lods()[lod_index].clone();
+    let mesh_count = selected_lod.mesh_blocks().len();
+    let vertex_count = selected_lod
+        .mesh_blocks()
+        .iter()
+        .map(|mesh| mesh.mesh().vertices().len())
+        .sum::<usize>();
+    let index_count = selected_lod
+        .mesh_blocks()
+        .iter()
+        .map(|mesh| mesh.mesh().indices().len())
+        .sum::<usize>();
+    let source_materials = selected_lod
+        .mesh_blocks()
+        .iter()
+        .map(rmv2_material_metadata)
+        .collect::<Vec<_>>();
+    let materials = source_materials
+        .iter()
+        .map(|material| json!({"name": material["name"], "type": material["type"]}))
+        .collect::<Vec<_>>();
+
+    // The upstream exporter emits one scene per entry in `lods`. Keep a clone so
+    // the decoded model remains intact while the exporter receives exactly one LOD.
+    let filtered_model = filtered_model_for_lod(&model, lod_index)?;
+
+    ensure_gltf_output_parent(output)?;
+    let mut dependencies = Dependencies::default();
+    let gltf = gltf_from_rigid(&filtered_model, &mut dependencies).map_err(|error| {
+        format!(
+            "Unable to export RMV2 '{}' LOD {} as glTF '{}': {}",
+            input.display(),
+            lod_index,
+            output.display(),
+            error
+        )
+    })?;
+    save_gltf_to_disk(&gltf, output).map_err(|error| {
+        format!(
+            "Unable to write glTF '{}' for RMV2 '{}': {}",
+            output.display(),
+            input.display(),
+            error
+        )
+    })?;
+    if !output.is_file() {
+        return Err(format!(
+            "glTF export for '{}' reported success but output '{}' was not created",
+            input.display(),
+            output.display()
+        ));
+    }
+    preserve_gltf_material_identity(output, &source_materials)?;
+
+    Ok(gltf_export_result(
+        input.file_name().and_then(|name| name.to_str()).unwrap_or("<non-utf8>"),
+        output.file_name().and_then(|name| name.to_str()).unwrap_or("<non-utf8>"),
+        &model,
+        lod_index,
+        mesh_count,
+        vertex_count,
+        index_count,
+        materials,
+    ))
+}
+
 fn run(command: Command) -> Result<serde_json::Value, String> {
     match command {
+        Command::InspectRmv2 {
+            input,
+            validate_decode,
+        } => inspect_rmv2(&input, validate_decode),
+        Command::ExportRmv2Gltf { input, output, lod } => {
+            export_rmv2_gltf(&input, &output, lod)
+        }
         Command::CreateTestPack { spec, output } => {
             let document: serde_json::Value =
                 serde_json::from_slice(&fs::read(&spec).map_err(|e| e.to_string())?)
@@ -508,5 +1148,227 @@ mod tests {
         )
         .unwrap();
         assert_eq!(first, second);
+    }
+
+    fn write_u16(bytes: &mut [u8], offset: usize, value: u16) {
+        bytes[offset..offset + 2].copy_from_slice(&value.to_le_bytes());
+    }
+
+    fn write_u32(bytes: &mut [u8], offset: usize, value: u32) {
+        bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+    }
+
+    fn synthetic_rmv2_v6_with_default_layout_material(material_type: u16) -> Vec<u8> {
+        let mesh_offset = RMV2_V6_HEADER_BYTES + RMV2_V6_LOD_HEADER_BYTES;
+        let vertex_offset = RMV2_V6_MATERIAL_OFFSET + DEFAULT_MATERIAL_FIXED_BYTES;
+        let index_offset = vertex_offset + 28;
+        let section_bytes = index_offset + 6;
+        let mut bytes = vec![0; mesh_offset + section_bytes];
+        bytes[..4].copy_from_slice(RMV2_MAGIC);
+        write_u32(&mut bytes, 4, 6);
+        write_u16(&mut bytes, 8, 1);
+        bytes[12..20].copy_from_slice(b"test_rig");
+
+        write_u32(&mut bytes, RMV2_V6_HEADER_BYTES, 1);
+        write_u32(&mut bytes, RMV2_V6_HEADER_BYTES + 4, 28);
+        write_u32(&mut bytes, RMV2_V6_HEADER_BYTES + 8, 6);
+        write_u32(&mut bytes, RMV2_V6_HEADER_BYTES + 12, mesh_offset as u32);
+
+        write_u16(&mut bytes, mesh_offset, material_type);
+        write_u32(&mut bytes, mesh_offset + 4, section_bytes as u32);
+        write_u32(&mut bytes, mesh_offset + 8, vertex_offset as u32);
+        write_u32(&mut bytes, mesh_offset + 12, 1);
+        write_u32(&mut bytes, mesh_offset + 16, index_offset as u32);
+        write_u32(&mut bytes, mesh_offset + 20, 3);
+
+        let material_offset = mesh_offset + RMV2_V6_MATERIAL_OFFSET;
+        write_u16(&mut bytes, material_offset, 3);
+        bytes[material_offset + 2..material_offset + 15].copy_from_slice(b"weighted_dirt");
+        bytes[material_offset + 34..material_offset + 38].copy_from_slice(b"tex/");
+        bytes
+    }
+
+    #[test]
+    fn inspect_rmv2_reports_metadata_for_default_compatible_unknown_material() {
+        let temp = tempdir().unwrap();
+        let input = temp.path().join("weighted_dirtmap.rigid_model_v2");
+        fs::write(&input, synthetic_rmv2_v6_with_default_layout_material(79)).unwrap();
+
+        let result = inspect_rmv2(&input, false).unwrap();
+        assert_eq!(result["rmv2_version"], 6);
+        assert_eq!(result["skeleton_id"], "test_rig");
+        assert_eq!(result["lod_count"], 1);
+        assert_eq!(result["lods"][0]["meshes"][0]["material_type"], 79);
+        assert_eq!(
+            result["lods"][0]["meshes"][0]["material_type_name"],
+            "WeightedDirtmap"
+        );
+        assert_eq!(
+            result["lods"][0]["meshes"][0]["material"]["layout"],
+            "default-material-compatible"
+        );
+        assert_eq!(
+            result["lods"][0]["meshes"][0]["material"]["name"],
+            "weighted_dirt"
+        );
+    }
+
+    #[test]
+    fn inspect_rmv2_rejects_invalid_magic() {
+        let temp = tempdir().unwrap();
+        let input = temp.path().join("invalid.rigid_model_v2");
+        fs::write(&input, b"not an RMV2").unwrap();
+        assert!(inspect_rmv2(&input, false)
+            .unwrap_err()
+            .contains("expected RMV2 magic"));
+    }
+
+    #[test]
+    fn inspect_rmv2_json_is_deterministic() {
+        let temp = tempdir().unwrap();
+        let input = temp.path().join("weighted_dirtmap.rigid_model_v2");
+        fs::write(&input, synthetic_rmv2_v6_with_default_layout_material(79)).unwrap();
+        let first = serde_json::to_string(&inspect_rmv2(&input, false).unwrap()).unwrap();
+        let second = serde_json::to_string(&inspect_rmv2(&input, false).unwrap()).unwrap();
+        assert_eq!(first, second);
+    }
+
+    #[test]
+    fn export_highest_selects_lod_zero() {
+        assert_eq!(selected_lod_index(LodSelection::Highest, 4).unwrap(), 0);
+    }
+
+    #[test]
+    fn export_accepts_explicit_lod_and_rejects_invalid_indices() {
+        assert_eq!(selected_lod_index(LodSelection::Index(2), 4).unwrap(), 2);
+        assert!(selected_lod_index(LodSelection::Index(4), 4)
+            .unwrap_err()
+            .contains("contains 4 LOD"));
+        assert!(parse_lod_selection("not-a-lod").is_err());
+    }
+
+    #[test]
+    fn export_requires_a_gltf_output_path() {
+        assert!(output_gltf_path(Path::new("build/output.gltf")).is_ok());
+        assert!(output_gltf_path(Path::new("build/output.glb"))
+            .unwrap_err()
+            .contains(".gltf"));
+        assert!(output_gltf_path(Path::new("build/"))
+            .unwrap_err()
+            .contains(".gltf"));
+    }
+
+    #[test]
+    fn export_creates_output_parent_directory() {
+        let temp = tempdir().unwrap();
+        let output = temp.path().join("nested/output/praetorian-helmet.gltf");
+        ensure_gltf_output_parent(&output).unwrap();
+        assert!(output.parent().unwrap().is_dir());
+    }
+
+    #[test]
+    fn export_filters_model_to_exactly_one_selected_lod() {
+        let mut model = RigidModel::default();
+        *model.lods_mut() = vec![
+            rpfm_lib::files::rigidmodel::Lod::default(),
+            rpfm_lib::files::rigidmodel::Lod::default(),
+            rpfm_lib::files::rigidmodel::Lod::default(),
+        ];
+        let filtered = filtered_model_for_lod(&model, 1).unwrap();
+        assert_eq!(model.lods().len(), 3);
+        assert_eq!(filtered.lods().len(), 1);
+    }
+
+    #[test]
+    fn export_result_json_is_deterministic() {
+        let model = RigidModel::default();
+        let first = serde_json::to_string(&gltf_export_result(
+            "helmet.rigid_model_v2",
+            "helmet.gltf",
+            &model,
+            0,
+            1,
+            3,
+            3,
+            vec![json!({"name": "helmet", "type": "WeightedDirtmap"})],
+        ))
+        .unwrap();
+        let second = serde_json::to_string(&gltf_export_result(
+            "helmet.rigid_model_v2",
+            "helmet.gltf",
+            &model,
+            0,
+            1,
+            3,
+            3,
+            vec![json!({"name": "helmet", "type": "WeightedDirtmap"})],
+        ))
+        .unwrap();
+        assert_eq!(first, second);
+    }
+
+    fn source_material(name: &str, material_type: &str, texture: &str) -> serde_json::Value {
+        json!({
+            "attachment_count": 0,
+            "name": name,
+            "parameter_counts": {"float": 0, "integer": 0, "string": 0, "vector4": 0},
+            "parameters": {"float": [], "integer": [], "string": [], "vector4": []},
+            "texture_directory": "variantmeshes/test/tex/",
+            "textures": [{"path": texture, "type": "Diffuse"}],
+            "type": material_type,
+        })
+    }
+
+    #[test]
+    fn gltf_postprocessing_preserves_material_identity_without_touching_geometry() {
+        let temp = tempdir().unwrap();
+        let output = temp.path().join("identity.gltf");
+        let document = json!({
+            "asset": {"version": "2.0"},
+            "accessors": [{"count": 3}],
+            "buffers": [{"uri": "data:application/octet-stream;base64,AA==", "byteLength": 1}],
+            "materials": [{}, {}],
+        });
+        fs::write(&output, serde_json::to_vec_pretty(&document).unwrap()).unwrap();
+        let source = vec![
+            source_material("helmet", "WeightedDirtmap", "helmet_diffuse.dds"),
+            source_material("crest", "DecalDirtmap", "crest_diffuse.dds"),
+        ];
+        preserve_gltf_material_identity(&output, &source).unwrap();
+        let result: serde_json::Value = serde_json::from_slice(&fs::read(&output).unwrap()).unwrap();
+        assert_eq!(result["materials"][0]["name"], "helmet");
+        assert_eq!(result["materials"][1]["name"], "crest");
+        assert_eq!(result["materials"][0]["extras"]["rome2aoe2"]["type"], "WeightedDirtmap");
+        assert_eq!(result["materials"][0]["extras"]["rome2aoe2"]["textures"][0]["path"], "helmet_diffuse.dds");
+        assert!(result.get("images").is_none());
+        assert_eq!(result["accessors"], document["accessors"]);
+        assert_eq!(result["buffers"], document["buffers"]);
+    }
+
+    #[test]
+    fn gltf_material_postprocessing_is_deterministic() {
+        let temp = tempdir().unwrap();
+        let document = json!({"asset": {"version": "2.0"}, "materials": [{}]});
+        let source = vec![source_material("helmet", "WeightedDirtmap", "helmet_diffuse.dds")];
+        let first = temp.path().join("first.gltf");
+        let second = temp.path().join("second.gltf");
+        for output in [&first, &second] {
+            fs::write(output, serde_json::to_vec_pretty(&document).unwrap()).unwrap();
+            preserve_gltf_material_identity(output, &source).unwrap();
+        }
+        assert_eq!(fs::read(first).unwrap(), fs::read(second).unwrap());
+    }
+
+    #[test]
+    fn export_reports_input_failure_with_context() {
+        let temp = tempdir().unwrap();
+        let error = export_rmv2_gltf(
+            &temp.path().join("missing.rigid_model_v2"),
+            &temp.path().join("nested/output.gltf"),
+            LodSelection::Highest,
+        )
+        .unwrap_err();
+        assert!(error.contains("Unable to read RMV2"));
+        assert!(error.contains("missing.rigid_model_v2"));
     }
 }
