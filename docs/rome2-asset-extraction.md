@@ -75,3 +75,18 @@ cargo test --manifest-path tools/rome2_pack/Cargo.toml
 They create a temporary synthetic PFH4 pack with `rpfm_lib`; no pack fixture or
 extracted game asset is committed. A real-pack integration test remains future,
 optional work and should use explicitly configured local inputs.
+
+## Recursive VMD acquisition
+
+`src/rome2/acquire_variant_mesh_definitions.py` coordinates the existing VMD
+resolver with the helper. Supply `--pack` repeatedly in explicit priority order:
+the first matching pack wins and later matches are recorded as `shadowed_packs`.
+It extracts only selected referenced `.variantmeshdefinition` files, then writes
+`vmd-acquisition.json` and `dependencies.json` below the supplied output root.
+
+```powershell
+python src/rome2/acquire_variant_mesh_definitions.py --helper tools\rome2_pack\target\release\rome2aoe2-pack.exe --pack C:\RomeII\data\models3_rome2.pack --root-path variantmeshes\variantmeshdefinitions\example.variantmeshdefinition --output-root build\extracted
+```
+
+Configured order is provisional; it is not an attempt to model Rome II's full
+pack-loading rules.

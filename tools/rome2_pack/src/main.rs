@@ -4,14 +4,10 @@ use std::path::{Component, Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::OnceLock;
 
-use rpfm_lib::files::{pack::Pack, Container, ContainerPath};
+use rpfm_lib::files::{pack::Pack, Container, ContainerPath, FileType, RFile};
 use rpfm_lib::games::supported_games::{SupportedGames, KEY_ROME_2};
-use serde_json::json;
-
-#[cfg(test)]
-use rpfm_lib::files::{FileType, RFile};
-#[cfg(test)]
 use rpfm_lib::games::{pfh_file_type::PFHFileType, pfh_version::PFHVersion};
+use serde_json::json;
 
 const RESULT_FORMAT: &str = "rome2aoe2.pack-result";
 const RESULT_VERSION: u32 = 1;
@@ -37,10 +33,14 @@ enum Command {
         requested_path: PackRelativePath,
         output_root: PathBuf,
     },
+    CreateTestPack {
+        spec: PathBuf,
+        output: PathBuf,
+    },
 }
 
 fn usage() -> &'static str {
-    "Usage:\n  rome2aoe2-pack list --pack <pack-file>\n  rome2aoe2-pack contains --pack <pack-file> --path <pack-relative-path>\n  rome2aoe2-pack extract --pack <pack-file> --path <pack-relative-path> --output-root <directory>"
+    "Usage:\n  rome2aoe2-pack list --pack <pack-file>\n  rome2aoe2-pack contains --pack <pack-file> --path <pack-relative-path>\n  rome2aoe2-pack extract --pack <pack-file> --path <pack-relative-path> --output-root <directory>\n  rome2aoe2-pack create-test-pack --spec <json-file> --output <pack-file>"
 }
 
 fn parse_pack_relative_path(value: &str) -> Result<PackRelativePath, String> {
@@ -92,6 +92,8 @@ fn parse_command(arguments: &[String]) -> Result<Command, String> {
     let mut pack = None;
     let mut path = None;
     let mut output_root = None;
+    let mut spec = None;
+    let mut output = None;
     let mut index = 1;
     while index < arguments.len() {
         let option = arguments[index].as_str();
@@ -105,10 +107,18 @@ fn parse_command(arguments: &[String]) -> Result<Command, String> {
             "--pack" => pack = Some(PathBuf::from(value)),
             "--path" => path = Some(parse_pack_relative_path(value)?),
             "--output-root" => output_root = Some(PathBuf::from(value)),
+            "--spec" => spec = Some(PathBuf::from(value)),
+            "--output" => output = Some(PathBuf::from(value)),
             _ => return Err(format!("Unknown option '{}'.\n{}", option, usage())),
         }
     }
 
+    if operation == "create-test-pack" {
+        return Ok(Command::CreateTestPack {
+            spec: spec.ok_or_else(|| "Missing --spec".to_owned())?,
+            output: output.ok_or_else(|| "Missing --output".to_owned())?,
+        });
+    }
     let pack = pack.ok_or_else(|| format!("Missing --pack.\n{}", usage()))?;
     match operation {
         "list" if path.is_none() && output_root.is_none() => Ok(Command::List { pack }),
@@ -216,6 +226,44 @@ fn result_pack_name(pack: &Path) -> String {
 
 fn run(command: Command) -> Result<serde_json::Value, String> {
     match command {
+        Command::CreateTestPack { spec, output } => {
+            let document: serde_json::Value =
+                serde_json::from_slice(&fs::read(&spec).map_err(|e| e.to_string())?)
+                    .map_err(|e| e.to_string())?;
+            if document["format"] != "rome2aoe2.test-pack-spec" || document["version"] != 1 {
+                return Err("Invalid test-pack specification format/version".to_owned());
+            }
+            let files = document["files"]
+                .as_array()
+                .ok_or_else(|| "Test-pack spec requires files".to_owned())?;
+            let mut pack = Pack::new_with_version(PFHVersion::PFH4);
+            pack.header_mut().set_pfh_file_type(PFHFileType::Release);
+            let mut seen = std::collections::BTreeSet::new();
+            for file in files {
+                let path = file["path"]
+                    .as_str()
+                    .ok_or_else(|| "Test-pack file requires path".to_owned())?;
+                let parsed = parse_pack_relative_path(path)?;
+                if !seen.insert(parsed.comparison_key) {
+                    return Err(format!("Duplicate normalized test-pack path '{}'", path));
+                }
+                let content = file["content_utf8"]
+                    .as_str()
+                    .ok_or_else(|| "Test-pack file requires content_utf8".to_owned())?;
+                pack.files_mut().insert(
+                    path.to_owned(),
+                    RFile::new_from_vec(content.as_bytes(), FileType::Text, 0, path),
+                );
+            }
+            if let Some(parent) = output.parent() {
+                fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+            }
+            pack.save(Some(&output), rome_2_game()?, &None)
+                .map_err(|e| e.to_string())?;
+            Ok(
+                json!({"format": RESULT_FORMAT, "version": RESULT_VERSION, "operation":"create-test-pack", "output": output.to_string_lossy(), "file_count": files.len()}),
+            )
+        }
         Command::List { pack } => {
             let pack_file = open_pack(&pack)?;
             let mut paths = pack_file.files().keys().cloned().collect::<Vec<_>>();

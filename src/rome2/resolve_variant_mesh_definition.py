@@ -23,6 +23,18 @@ class VariantMeshDefinitionResolutionError(RuntimeError):
 class MissingVariantMeshDefinitionError(VariantMeshDefinitionResolutionError):
     """A selected local VARIANT_MESH_REFERENCE did not resolve to a file."""
 
+    def __init__(self, referring_definition, referenced_definition, slot_path, reference_chain):
+        self.referring_definition = referring_definition
+        self.referenced_definition = referenced_definition
+        self.slot_path = slot_path
+        self.reference_chain = reference_chain
+        super().__init__(
+            "Missing referenced VariantMeshDefinition: referring_definition='{}' "
+            "referenced_definition='{}' slot_path='{}' reference_chain='{}'".format(
+                referring_definition, referenced_definition, slot_path, " -> ".join(reference_chain)
+            )
+        )
+
 
 class VariantMeshDefinitionCycleError(VariantMeshDefinitionResolutionError):
     """A selected VARIANT_MESH_REFERENCE would recurse into its active chain."""
@@ -214,13 +226,10 @@ def resolve(definition_path: Path, definition_root: Optional[Path] = None) -> Di
             target = _resolve_local_reference(root_directory, reference_path)
             if target is None:
                 raise MissingVariantMeshDefinitionError(
-                    "Missing referenced VariantMeshDefinition: referring_definition='{}' "
-                    "referenced_definition='{}' slot_path='{}' reference_chain='{}'".format(
-                        definition,
-                        reference_path,
-                        "/".join(selected_slot_path),
-                        " -> ".join(reference_chain + [reference_path]),
-                    )
+                    definition,
+                    reference_path,
+                    "/".join(selected_slot_path),
+                    reference_chain + [reference_path],
                 )
             visit_definition(target, selected_slot_path, reference_chain + [definition_display(target)], active_chain)
 
