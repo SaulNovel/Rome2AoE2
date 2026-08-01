@@ -1,0 +1,179 @@
+diff --git a/rpfm_lib/src/files/rigidmodel/materials/mod.rs b/rpfm_lib/src/files/rigidmodel/materials/mod.rs
+--- a/rpfm_lib/src/files/rigidmodel/materials/mod.rs
++++ b/rpfm_lib/src/files/rigidmodel/materials/mod.rs
+@@ -451,6 +451,9 @@ impl Material {
+             MaterialType::Water |
+             MaterialType::TiledDirtmap |
+             MaterialType::ShipAmbientmap |
++            MaterialType::DecalDirtmap |
++            MaterialType::WeightedDirtmap |
++            MaterialType::WeightedSkinDirtmap |
+             MaterialType::TerrainBlend |
+             MaterialType::Weighted |
+             MaterialType::DefaultMaterial => Self::read_default(data)?,
+@@ -479,6 +482,9 @@ impl Material {
+             MaterialType::Water |
+             MaterialType::TiledDirtmap |
+             MaterialType::ShipAmbientmap |
++            MaterialType::DecalDirtmap |
++            MaterialType::WeightedDirtmap |
++            MaterialType::WeightedSkinDirtmap |
+             MaterialType::TerrainBlend |
+             MaterialType::Weighted |
+             MaterialType::DefaultMaterial => self.write_default(buffer)?,
+diff --git a/rpfm_lib/src/files/rigidmodel/test_rigidmodel.rs b/rpfm_lib/src/files/rigidmodel/test_rigidmodel.rs
+--- a/rpfm_lib/src/files/rigidmodel/test_rigidmodel.rs
++++ b/rpfm_lib/src/files/rigidmodel/test_rigidmodel.rs
+@@ -10,14 +10,129 @@
+ 
+ //! Module containing tests for decoding/encoding `RigidModel` files.
+ 
+-use std::io::{BufReader, BufWriter, Write};
++use std::io::{BufReader, BufWriter, Cursor, Write};
+ use std::fs::File;
+ 
+-use crate::binary::ReadBytes;
+-//use crate::files::rigidmodel::MaterialType;
++use crate::binary::{ReadBytes, WriteBytes};
+ use crate::files::*;
+ 
+-use super::RigidModel;
++use super::*;
++use super::materials::{Material, MaterialType};
++use super::vertices::VertexFormat;
++
++fn default_layout_material_bytes(vertex_format: VertexFormat) -> Vec<u8> {
++    let mut bytes = vec![];
++    bytes.write_u16(vertex_format.into()).unwrap();
++    bytes.write_string_u8_0padded("rome2_default_layout", PADDED_SIZE_32, true).unwrap();
++    bytes.write_string_u8_0padded("variantmeshes/_variantmodels/test/tex/", PADDED_SIZE_256, true).unwrap();
++    bytes.write_string_u8_0padded("filter_test", PADDED_SIZE_256, true).unwrap();
++    bytes.write_u8(1).unwrap();
++    bytes.write_u8(2).unwrap();
++    for value in [1.0_f32, 2.0, 3.0] { bytes.write_f32(value).unwrap(); }
++    for value in 0..36 { bytes.write_f32(value as f32 + 0.25).unwrap(); }
++    bytes.write_i32(7).unwrap();
++    bytes.write_i32(-1).unwrap();
++    for _ in 0..6 { bytes.write_u32(1).unwrap(); }
++    bytes.write_all(&[0xA5; 124]).unwrap();
++    bytes.write_string_u8_0padded("attachment", PADDED_SIZE_32, true).unwrap();
++    for value in 0..12 { bytes.write_f32(value as f32 + 10.0).unwrap(); }
++    bytes.write_u32(17).unwrap();
++    bytes.write_i32(0).unwrap();
++    bytes.write_string_u8_0padded("test_diffuse.dds", PADDED_SIZE_256, true).unwrap();
++    bytes.write_i32(3).unwrap();
++    bytes.write_sized_string_u8("string_parameter").unwrap();
++    bytes.write_i32(4).unwrap();
++    bytes.write_f32(5.5).unwrap();
++    bytes.write_i32(6).unwrap();
++    bytes.write_i32(-7).unwrap();
++    bytes.write_i32(8).unwrap();
++    for value in [9.0_f32, 10.0, 11.0, 12.0] { bytes.write_f32(value).unwrap(); }
++    bytes
++}
++
++fn rigid_model_v6_bytes(material_type: MaterialType, vertex_format: VertexFormat) -> Vec<u8> {
++    let material = default_layout_material_bytes(vertex_format);
++    let vertex_bytes = match vertex_format {
++        VertexFormat::Static => 32,
++        VertexFormat::Weighted => 28,
++        _ => panic!("test only supports static and weighted vertex formats"),
++    };
++    let mesh_data_bytes = 24 + 32 + material.len() + vertex_bytes + 6;
++    let mut bytes = vec![];
++    bytes.write_all(SIGNATURE).unwrap();
++    bytes.write_u32(6).unwrap();
++    bytes.write_u16(1).unwrap();
++    bytes.write_u16(0).unwrap();
++    bytes.write_string_u8_0padded("rome_man_game", PADDED_SIZE_128, true).unwrap();
++    bytes.write_u32(1).unwrap();
++    bytes.write_u32(vertex_bytes as u32).unwrap();
++    bytes.write_u32(6).unwrap();
++    bytes.write_u32(HEADER_LENGTH + 20).unwrap();
++    bytes.write_f32(0.0).unwrap();
++    bytes.write_u16(material_type.into()).unwrap();
++    bytes.write_u16(0).unwrap();
++    bytes.write_u32((24 + mesh_data_bytes) as u32).unwrap();
++    bytes.write_u32((80 + material.len()) as u32).unwrap();
++    bytes.write_u32(1).unwrap();
++    bytes.write_u32((80 + material.len() + vertex_bytes) as u32).unwrap();
++    bytes.write_u32(3).unwrap();
++    for _ in 0..6 { bytes.write_f32(0.0).unwrap(); }
++    bytes.write_all(&[0; 32]).unwrap();
++    bytes.write_all(&material).unwrap();
++    bytes.write_all(&vec![0; vertex_bytes]).unwrap();
++    for _ in 0..3 { bytes.write_u16(0).unwrap(); }
++    bytes
++}
++
++fn assert_default_layout_material_round_trip(material_type: MaterialType, vertex_format: VertexFormat) {
++    let before = default_layout_material_bytes(vertex_format);
++    let mut reader = Cursor::new(before.clone());
++    let material = Material::read(&mut reader, material_type).unwrap();
++    assert_eq!(reader.position() as usize, before.len());
++    assert_eq!(material.attachment_points().len(), 1);
++    assert_eq!(material.textures().len(), 1);
++    assert_eq!(material.params_string().len(), 1);
++    assert_eq!(material.params_f32().len(), 1);
++    assert_eq!(material.params_i32().len(), 1);
++    assert_eq!(material.params_vector4df32().len(), 1);
++    let mut after = vec![];
++    material.write(&mut after, material_type).unwrap();
++    assert_eq!(after, before);
++}
++
++fn assert_rigid_model_v6_round_trip(material_type: MaterialType, vertex_format: VertexFormat) {
++    let before = rigid_model_v6_bytes(material_type, vertex_format);
++    let mut reader = Cursor::new(before.clone());
++    let mut model = RigidModel::decode(&mut reader, &None).unwrap();
++    assert_eq!(reader.position() as usize, before.len());
++    let mut after = vec![];
++    model.encode(&mut after, &None).unwrap();
++    assert_eq!(after, before);
++}
++
++#[test]
++fn test_rome2_decal_dirtmap_default_layout_round_trip() {
++    assert_default_layout_material_round_trip(MaterialType::DecalDirtmap, VertexFormat::Static);
++    assert_rigid_model_v6_round_trip(MaterialType::DecalDirtmap, VertexFormat::Static);
++}
++
++#[test]
++fn test_rome2_weighted_dirtmap_default_layout_round_trip() {
++    assert_default_layout_material_round_trip(MaterialType::WeightedDirtmap, VertexFormat::Weighted);
++    assert_rigid_model_v6_round_trip(MaterialType::WeightedDirtmap, VertexFormat::Weighted);
++}
++
++#[test]
++fn test_rome2_weighted_skin_dirtmap_default_layout_round_trip() {
++    assert_default_layout_material_round_trip(MaterialType::WeightedSkinDirtmap, VertexFormat::Weighted);
++    assert_rigid_model_v6_round_trip(MaterialType::WeightedSkinDirtmap, VertexFormat::Weighted);
++}
++
++#[test]
++fn test_rome2_default_layout_patch_keeps_unrelated_types_unsupported() {
++    assert!(Material::read(&mut Cursor::new(vec![]), MaterialType::WeightedSkin).is_err());
++    assert!(Material::read(&mut Cursor::new(vec![]), MaterialType::Dirtmap).is_err());
++}
+ 
+ #[test]
+ fn test_encode_rigidmodel_v8() {
+diff --git a/rpfm_lib/src/files/rigidmodel/vertices/mod.rs b/rpfm_lib/src/files/rigidmodel/vertices/mod.rs
+--- a/rpfm_lib/src/files/rigidmodel/vertices/mod.rs
++++ b/rpfm_lib/src/files/rigidmodel/vertices/mod.rs
+@@ -280,6 +280,7 @@ impl Vertex {
+ 
+                     v.uk_1 = data.read_vector_4_u8()?;
+                 }
++                MaterialType::DecalDirtmap |
+                 MaterialType::Dirtmap => {
+                     v.position = data.read_vector_4_f32_normal_from_vector_4_f16()?;
+                     v.texture_coordinate = data.read_vector_2_f32_from_vector_2_f16()?;
+@@ -440,6 +441,7 @@ impl Vertex {
+                     data.write_vector_4_f32_normal_as_vector_4_u8(self.bitangent)?;
+                     data.write_vector_4_u8(self.uk_1)?;
+                 }
++                MaterialType::DecalDirtmap |
+                 MaterialType::Dirtmap => {
+                     data.write_vector_4_f32_normal_as_vector_4_f16(self.position)?;
+                     data.write_vector_2_f32_as_vector_2_f16(self.texture_coordinate)?;

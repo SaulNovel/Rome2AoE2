@@ -1,10 +1,12 @@
 use std::env;
 use std::fs;
+use std::io::Cursor;
 use std::path::{Component, Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::OnceLock;
 
 use rpfm_lib::files::{pack::Pack, Container, ContainerPath, FileType, RFile};
+use rpfm_lib::files::{rigidmodel::RigidModel, Decodeable};
 use rpfm_lib::games::supported_games::{SupportedGames, KEY_ROME_2};
 use rpfm_lib::games::{pfh_file_type::PFHFileType, pfh_version::PFHVersion};
 use serde_json::json;
@@ -37,10 +39,14 @@ enum Command {
         spec: PathBuf,
         output: PathBuf,
     },
+    InspectRmv2 {
+        input: PathBuf,
+        validate_decode: bool,
+    },
 }
 
 fn usage() -> &'static str {
-    "Usage:\n  rome2aoe2-pack list --pack <pack-file>\n  rome2aoe2-pack contains --pack <pack-file> --path <pack-relative-path>\n  rome2aoe2-pack extract --pack <pack-file> --path <pack-relative-path> --output-root <directory>\n  rome2aoe2-pack create-test-pack --spec <json-file> --output <pack-file>"
+    "Usage:\n  rome2aoe2-pack list --pack <pack-file>\n  rome2aoe2-pack contains --pack <pack-file> --path <pack-relative-path>\n  rome2aoe2-pack extract --pack <pack-file> --path <pack-relative-path> --output-root <directory>\n  rome2aoe2-pack create-test-pack --spec <json-file> --output <pack-file>\n  rome2aoe2-pack inspect-rmv2 --input <local-rmv2-file> [--decode]"
 }
 
 fn parse_pack_relative_path(value: &str) -> Result<PackRelativePath, String> {
@@ -94,10 +100,16 @@ fn parse_command(arguments: &[String]) -> Result<Command, String> {
     let mut output_root = None;
     let mut spec = None;
     let mut output = None;
+    let mut input = None;
+    let mut validate_decode = false;
     let mut index = 1;
     while index < arguments.len() {
         let option = arguments[index].as_str();
         index += 1;
+        if option == "--decode" {
+            validate_decode = true;
+            continue;
+        }
         if index == arguments.len() {
             return Err(format!("Missing value for '{}'.\n{}", option, usage()));
         }
@@ -109,6 +121,7 @@ fn parse_command(arguments: &[String]) -> Result<Command, String> {
             "--output-root" => output_root = Some(PathBuf::from(value)),
             "--spec" => spec = Some(PathBuf::from(value)),
             "--output" => output = Some(PathBuf::from(value)),
+            "--input" => input = Some(PathBuf::from(value)),
             _ => return Err(format!("Unknown option '{}'.\n{}", option, usage())),
         }
     }
@@ -117,6 +130,12 @@ fn parse_command(arguments: &[String]) -> Result<Command, String> {
         return Ok(Command::CreateTestPack {
             spec: spec.ok_or_else(|| "Missing --spec".to_owned())?,
             output: output.ok_or_else(|| "Missing --output".to_owned())?,
+        });
+    }
+    if operation == "inspect-rmv2" {
+        return Ok(Command::InspectRmv2 {
+            input: input.ok_or_else(|| "Missing --input".to_owned())?,
+            validate_decode,
         });
     }
     let pack = pack.ok_or_else(|| format!("Missing --pack.\n{}", usage()))?;
@@ -224,8 +243,377 @@ fn result_pack_name(pack: &Path) -> String {
         .to_string()
 }
 
+const RMV2_MAGIC: &[u8; 4] = b"RMV2";
+const RMV2_V6_HEADER_BYTES: usize = 140;
+const RMV2_V6_LOD_HEADER_BYTES: usize = 20;
+const RMV2_V6_MESH_HEADER_BYTES: usize = 24;
+const RMV2_V6_MATERIAL_OFFSET: usize = 80;
+const DEFAULT_MATERIAL_FIXED_BYTES: usize = 860;
+
+fn rmv2_u16(bytes: &[u8], offset: usize, context: &str) -> Result<u16, String> {
+    let value = bytes
+        .get(offset..offset + 2)
+        .ok_or_else(|| format!("Malformed RMV2: {} is truncated", context))?;
+    Ok(u16::from_le_bytes(
+        value.try_into().expect("slice length checked"),
+    ))
+}
+
+fn rmv2_u32(bytes: &[u8], offset: usize, context: &str) -> Result<u32, String> {
+    let value = bytes
+        .get(offset..offset + 4)
+        .ok_or_else(|| format!("Malformed RMV2: {} is truncated", context))?;
+    Ok(u32::from_le_bytes(
+        value.try_into().expect("slice length checked"),
+    ))
+}
+
+fn rmv2_f32(bytes: &[u8], offset: usize, context: &str) -> Result<f32, String> {
+    let value = bytes
+        .get(offset..offset + 4)
+        .ok_or_else(|| format!("Malformed RMV2: {} is truncated", context))?;
+    Ok(f32::from_le_bytes(
+        value.try_into().expect("slice length checked"),
+    ))
+}
+
+fn rmv2_fixed_string(
+    bytes: &[u8],
+    offset: usize,
+    length: usize,
+    context: &str,
+) -> Result<String, String> {
+    let value = bytes
+        .get(offset..offset + length)
+        .ok_or_else(|| format!("Malformed RMV2: {} is truncated", context))?;
+    let value = value
+        .split(|byte| *byte == 0)
+        .next()
+        .expect("a slice always has a first segment");
+    std::str::from_utf8(value)
+        .map(str::to_owned)
+        .map_err(|error| format!("Malformed RMV2: {} is not UTF-8: {}", context, error))
+}
+
+fn checked_rmv2_add(left: usize, right: usize, context: &str) -> Result<usize, String> {
+    left.checked_add(right)
+        .ok_or_else(|| format!("Malformed RMV2: {} overflows", context))
+}
+
+fn material_type_name(material_type: u16) -> Option<&'static str> {
+    match material_type {
+        65 => Some("Weighted"),
+        68 => Some("DefaultMaterial"),
+        70 => Some("WeightedSkin"),
+        72 => Some("DecalDirtmap"),
+        73 => Some("Dirtmap"),
+        79 => Some("WeightedDirtmap"),
+        82 => Some("WeightedSkinDirtmap"),
+        _ => None,
+    }
+}
+
+fn vertex_format_name(vertex_format: u16) -> Option<&'static str> {
+    match vertex_format {
+        0 => Some("Static"),
+        1 => Some("Collision"),
+        3 => Some("Weighted"),
+        4 => Some("Cinematic"),
+        5 => Some("Grass"),
+        8 => Some("Uk8"),
+        12 => Some("Uk12"),
+        25 => Some("ClothSim"),
+        _ => None,
+    }
+}
+
+fn texture_type_name(texture_type: i32) -> Option<&'static str> {
+    match texture_type {
+        0 => Some("Diffuse"),
+        1 => Some("Normal"),
+        3 => Some("Mask"),
+        5 => Some("AmbientOcclusion"),
+        7 => Some("TilingDirtUV2"),
+        8 => Some("DirtAlphaMask"),
+        10 => Some("SkinMask"),
+        11 => Some("Specular"),
+        12 => Some("GlossMap"),
+        13 => Some("DecalDirtmap"),
+        14 => Some("DecalDirtmask"),
+        15 => Some("DecalMask"),
+        17 => Some("DiffuseDamage"),
+        27 => Some("BaseColor"),
+        29 => Some("MaterialMap"),
+        _ => None,
+    }
+}
+
+fn parse_default_layout_metadata(
+    bytes: &[u8],
+    offset: usize,
+    material_bytes: usize,
+) -> Result<serde_json::Value, String> {
+    let material_end = checked_rmv2_add(offset, material_bytes, "material block end")?;
+    if material_end > bytes.len() || material_bytes < DEFAULT_MATERIAL_FIXED_BYTES {
+        return Err("default material block is truncated".to_owned());
+    }
+
+    let vertex_format = rmv2_u16(bytes, offset, "material vertex format")?;
+    let name = rmv2_fixed_string(bytes, offset + 2, 32, "material name")?;
+    let texture_directory =
+        rmv2_fixed_string(bytes, offset + 34, 256, "material texture directory")?;
+    let attachment_count = rmv2_u32(bytes, offset + 712, "material attachment count")? as usize;
+    let texture_count = rmv2_u32(bytes, offset + 716, "material texture count")? as usize;
+    let string_param_count =
+        rmv2_u32(bytes, offset + 720, "material string parameter count")? as usize;
+    let float_param_count =
+        rmv2_u32(bytes, offset + 724, "material float parameter count")? as usize;
+    let integer_param_count =
+        rmv2_u32(bytes, offset + 728, "material integer parameter count")? as usize;
+    let vector_param_count =
+        rmv2_u32(bytes, offset + 732, "material vector parameter count")? as usize;
+
+    let attachment_bytes = attachment_count
+        .checked_mul(84)
+        .ok_or_else(|| "default material attachment data overflows".to_owned())?;
+    let texture_bytes = texture_count
+        .checked_mul(260)
+        .ok_or_else(|| "default material texture data overflows".to_owned())?;
+    let textures_offset = checked_rmv2_add(
+        checked_rmv2_add(
+            offset + DEFAULT_MATERIAL_FIXED_BYTES,
+            attachment_bytes,
+            "texture table offset",
+        )?,
+        0,
+        "texture table offset",
+    )?;
+    let mut cursor = checked_rmv2_add(textures_offset, texture_bytes, "parameter table offset")?;
+    if cursor > material_end {
+        return Err(
+            "default material attachment or texture table exceeds material block".to_owned(),
+        );
+    }
+
+    let mut textures = Vec::with_capacity(texture_count);
+    for texture_index in 0..texture_count {
+        let texture_offset =
+            checked_rmv2_add(textures_offset, texture_index * 260, "texture entry offset")?;
+        let texture_type = i32::from_le_bytes(
+            bytes
+                .get(texture_offset..texture_offset + 4)
+                .ok_or_else(|| "default material texture entry is truncated".to_owned())?
+                .try_into()
+                .expect("slice length checked"),
+        );
+        let path = rmv2_fixed_string(bytes, texture_offset + 4, 256, "texture path")?;
+        textures.push(json!({
+            "path": path,
+            "type": texture_type,
+            "type_name": texture_type_name(texture_type),
+        }));
+    }
+
+    for _ in 0..string_param_count {
+        let length_offset = checked_rmv2_add(cursor, 4, "string parameter length")?;
+        let length = rmv2_u16(bytes, length_offset, "string parameter length")? as usize;
+        cursor = checked_rmv2_add(cursor, 6, "string parameter header")?;
+        cursor = checked_rmv2_add(cursor, length, "string parameter value")?;
+        if cursor > material_end {
+            return Err("default material string parameter exceeds material block".to_owned());
+        }
+    }
+    cursor = checked_rmv2_add(
+        cursor,
+        float_param_count
+            .checked_mul(8)
+            .ok_or_else(|| "default material float parameter data overflows".to_owned())?,
+        "float parameter table",
+    )?;
+    cursor = checked_rmv2_add(
+        cursor,
+        integer_param_count
+            .checked_mul(8)
+            .ok_or_else(|| "default material integer parameter data overflows".to_owned())?,
+        "integer parameter table",
+    )?;
+    cursor = checked_rmv2_add(
+        cursor,
+        vector_param_count
+            .checked_mul(20)
+            .ok_or_else(|| "default material vector parameter data overflows".to_owned())?,
+        "vector parameter table",
+    )?;
+    if cursor != material_end {
+        return Err(format!(
+            "default material layout consumes {} bytes, but mesh header reserves {} bytes",
+            cursor - offset,
+            material_bytes
+        ));
+    }
+
+    Ok(json!({
+        "attachment_count": attachment_count,
+        "layout": "default-material-compatible",
+        "name": name,
+        "parameter_counts": {
+            "float": float_param_count,
+            "integer": integer_param_count,
+            "string": string_param_count,
+            "vector4": vector_param_count,
+        },
+        "texture_directory": texture_directory,
+        "textures": textures,
+        "vertex_format": vertex_format,
+        "vertex_format_name": vertex_format_name(vertex_format),
+    }))
+}
+
+fn inspect_rmv2(input: &Path, validate_decode: bool) -> Result<serde_json::Value, String> {
+    let bytes = fs::read(input)
+        .map_err(|error| format!("Unable to read RMV2 '{}': {}", input.display(), error))?;
+    if bytes.get(..4) != Some(RMV2_MAGIC) {
+        return Err(format!(
+            "Invalid RMV2 '{}': expected RMV2 magic",
+            input.display()
+        ));
+    }
+    let rmv2_version = rmv2_u32(&bytes, 4, "version")?;
+    if rmv2_version != 6 {
+        return Err(format!(
+            "Unsupported RMV2 version {} in '{}': metadata inspection currently supports Rome II RMV2 v6",
+            rmv2_version,
+            input.display()
+        ));
+    }
+    if validate_decode {
+        let mut reader = Cursor::new(bytes.clone());
+        RigidModel::decode(&mut reader, &None)
+            .map_err(|error| format!("Unable to decode RMV2 '{}': {}", input.display(), error))?;
+    }
+
+    let lod_count = rmv2_u16(&bytes, 8, "LOD count")? as usize;
+    let skeleton_id = rmv2_fixed_string(&bytes, 12, 128, "skeleton id")?;
+    let lod_headers_end = checked_rmv2_add(
+        RMV2_V6_HEADER_BYTES,
+        lod_count
+            .checked_mul(RMV2_V6_LOD_HEADER_BYTES)
+            .ok_or_else(|| "Malformed RMV2: LOD header table overflows".to_owned())?,
+        "LOD header table end",
+    )?;
+    if lod_headers_end > bytes.len() {
+        return Err("Malformed RMV2: LOD header table is truncated".to_owned());
+    }
+
+    let mut lods = Vec::with_capacity(lod_count);
+    for lod_index in 0..lod_count {
+        let header_offset = RMV2_V6_HEADER_BYTES + lod_index * RMV2_V6_LOD_HEADER_BYTES;
+        let mesh_count = rmv2_u32(&bytes, header_offset, "LOD mesh count")? as usize;
+        let mesh_offset = rmv2_u32(&bytes, header_offset + 12, "LOD mesh data offset")? as usize;
+        let visibility_distance = rmv2_f32(&bytes, header_offset + 16, "LOD visibility distance")?;
+        let mut offset = mesh_offset;
+        let mut meshes = Vec::with_capacity(mesh_count);
+        let mut vertex_count = 0usize;
+        let mut index_count = 0usize;
+
+        for mesh_index in 0..mesh_count {
+            let header_end =
+                checked_rmv2_add(offset, RMV2_V6_MESH_HEADER_BYTES, "mesh header end")?;
+            if header_end > bytes.len() {
+                return Err(format!(
+                    "Malformed RMV2: LOD {} mesh {} header is truncated",
+                    lod_index, mesh_index
+                ));
+            }
+            let material_type = rmv2_u16(&bytes, offset, "mesh material type")?;
+            let section_bytes = rmv2_u32(&bytes, offset + 4, "mesh section size")? as usize;
+            let vertex_offset = rmv2_u32(&bytes, offset + 8, "mesh vertex offset")? as usize;
+            let mesh_vertex_count = rmv2_u32(&bytes, offset + 12, "mesh vertex count")? as usize;
+            let index_offset = rmv2_u32(&bytes, offset + 16, "mesh index offset")? as usize;
+            let mesh_index_count = rmv2_u32(&bytes, offset + 20, "mesh index count")? as usize;
+            let section_end = checked_rmv2_add(offset, section_bytes, "mesh section end")?;
+            if section_end > bytes.len()
+                || vertex_offset < RMV2_V6_MATERIAL_OFFSET
+                || index_offset < vertex_offset
+                || index_offset > section_bytes
+            {
+                return Err(format!(
+                    "Malformed RMV2: LOD {} mesh {} has invalid section offsets",
+                    lod_index, mesh_index
+                ));
+            }
+
+            let material_offset =
+                checked_rmv2_add(offset, RMV2_V6_MATERIAL_OFFSET, "material offset")?;
+            let material_bytes = vertex_offset - RMV2_V6_MATERIAL_OFFSET;
+            let material =
+                match parse_default_layout_metadata(&bytes, material_offset, material_bytes) {
+                    Ok(material) => material,
+                    Err(reason) => json!({
+                        "layout": "unrecognized",
+                        "layout_reason": reason,
+                    }),
+                };
+            let min_bounds = [
+                rmv2_f32(&bytes, offset + 24, "mesh minimum bound x")?,
+                rmv2_f32(&bytes, offset + 28, "mesh minimum bound y")?,
+                rmv2_f32(&bytes, offset + 32, "mesh minimum bound z")?,
+            ];
+            let max_bounds = [
+                rmv2_f32(&bytes, offset + 36, "mesh maximum bound x")?,
+                rmv2_f32(&bytes, offset + 40, "mesh maximum bound y")?,
+                rmv2_f32(&bytes, offset + 44, "mesh maximum bound z")?,
+            ];
+            vertex_count = vertex_count
+                .checked_add(mesh_vertex_count)
+                .ok_or_else(|| "Malformed RMV2: LOD vertex count overflows".to_owned())?;
+            index_count = index_count
+                .checked_add(mesh_index_count)
+                .ok_or_else(|| "Malformed RMV2: LOD index count overflows".to_owned())?;
+            meshes.push(json!({
+                "bounds": {"max": max_bounds, "min": min_bounds},
+                "index": mesh_index,
+                "index_count": mesh_index_count,
+                "material": material,
+                "material_block_bytes": material_bytes,
+                "material_type": material_type,
+                "material_type_name": material_type_name(material_type),
+                "triangle_count": mesh_index_count / 3,
+                "vertex_count": mesh_vertex_count,
+            }));
+            offset = section_end;
+        }
+
+        lods.push(json!({
+            "index": lod_index,
+            "index_count": index_count,
+            "mesh_count": mesh_count,
+            "meshes": meshes,
+            "triangle_count": index_count / 3,
+            "vertex_count": vertex_count,
+            "visibility_distance": visibility_distance,
+        }));
+    }
+
+    Ok(json!({
+        "decoded_with_rpfm":validate_decode,
+        "format":"rome2aoe2.rmv2-inspection",
+        "highest_detail_lod":0,
+        "input":input.to_string_lossy(),
+        "lod_count":lod_count,
+        "lods":lods,
+        "rmv2_version":rmv2_version,
+        "skeleton_id":skeleton_id,
+        "version":1,
+    }))
+}
+
 fn run(command: Command) -> Result<serde_json::Value, String> {
     match command {
+        Command::InspectRmv2 {
+            input,
+            validate_decode,
+        } => inspect_rmv2(&input, validate_decode),
         Command::CreateTestPack { spec, output } => {
             let document: serde_json::Value =
                 serde_json::from_slice(&fs::read(&spec).map_err(|e| e.to_string())?)
@@ -507,6 +895,89 @@ mod tests {
             .unwrap(),
         )
         .unwrap();
+        assert_eq!(first, second);
+    }
+
+    fn write_u16(bytes: &mut [u8], offset: usize, value: u16) {
+        bytes[offset..offset + 2].copy_from_slice(&value.to_le_bytes());
+    }
+
+    fn write_u32(bytes: &mut [u8], offset: usize, value: u32) {
+        bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+    }
+
+    fn synthetic_rmv2_v6_with_default_layout_material(material_type: u16) -> Vec<u8> {
+        let mesh_offset = RMV2_V6_HEADER_BYTES + RMV2_V6_LOD_HEADER_BYTES;
+        let vertex_offset = RMV2_V6_MATERIAL_OFFSET + DEFAULT_MATERIAL_FIXED_BYTES;
+        let index_offset = vertex_offset + 28;
+        let section_bytes = index_offset + 6;
+        let mut bytes = vec![0; mesh_offset + section_bytes];
+        bytes[..4].copy_from_slice(RMV2_MAGIC);
+        write_u32(&mut bytes, 4, 6);
+        write_u16(&mut bytes, 8, 1);
+        bytes[12..20].copy_from_slice(b"test_rig");
+
+        write_u32(&mut bytes, RMV2_V6_HEADER_BYTES, 1);
+        write_u32(&mut bytes, RMV2_V6_HEADER_BYTES + 4, 28);
+        write_u32(&mut bytes, RMV2_V6_HEADER_BYTES + 8, 6);
+        write_u32(&mut bytes, RMV2_V6_HEADER_BYTES + 12, mesh_offset as u32);
+
+        write_u16(&mut bytes, mesh_offset, material_type);
+        write_u32(&mut bytes, mesh_offset + 4, section_bytes as u32);
+        write_u32(&mut bytes, mesh_offset + 8, vertex_offset as u32);
+        write_u32(&mut bytes, mesh_offset + 12, 1);
+        write_u32(&mut bytes, mesh_offset + 16, index_offset as u32);
+        write_u32(&mut bytes, mesh_offset + 20, 3);
+
+        let material_offset = mesh_offset + RMV2_V6_MATERIAL_OFFSET;
+        write_u16(&mut bytes, material_offset, 3);
+        bytes[material_offset + 2..material_offset + 15].copy_from_slice(b"weighted_dirt");
+        bytes[material_offset + 34..material_offset + 38].copy_from_slice(b"tex/");
+        bytes
+    }
+
+    #[test]
+    fn inspect_rmv2_reports_metadata_for_default_compatible_unknown_material() {
+        let temp = tempdir().unwrap();
+        let input = temp.path().join("weighted_dirtmap.rigid_model_v2");
+        fs::write(&input, synthetic_rmv2_v6_with_default_layout_material(79)).unwrap();
+
+        let result = inspect_rmv2(&input, false).unwrap();
+        assert_eq!(result["rmv2_version"], 6);
+        assert_eq!(result["skeleton_id"], "test_rig");
+        assert_eq!(result["lod_count"], 1);
+        assert_eq!(result["lods"][0]["meshes"][0]["material_type"], 79);
+        assert_eq!(
+            result["lods"][0]["meshes"][0]["material_type_name"],
+            "WeightedDirtmap"
+        );
+        assert_eq!(
+            result["lods"][0]["meshes"][0]["material"]["layout"],
+            "default-material-compatible"
+        );
+        assert_eq!(
+            result["lods"][0]["meshes"][0]["material"]["name"],
+            "weighted_dirt"
+        );
+    }
+
+    #[test]
+    fn inspect_rmv2_rejects_invalid_magic() {
+        let temp = tempdir().unwrap();
+        let input = temp.path().join("invalid.rigid_model_v2");
+        fs::write(&input, b"not an RMV2").unwrap();
+        assert!(inspect_rmv2(&input, false)
+            .unwrap_err()
+            .contains("expected RMV2 magic"));
+    }
+
+    #[test]
+    fn inspect_rmv2_json_is_deterministic() {
+        let temp = tempdir().unwrap();
+        let input = temp.path().join("weighted_dirtmap.rigid_model_v2");
+        fs::write(&input, synthetic_rmv2_v6_with_default_layout_material(79)).unwrap();
+        let first = serde_json::to_string(&inspect_rmv2(&input, false).unwrap()).unwrap();
+        let second = serde_json::to_string(&inspect_rmv2(&input, false).unwrap()).unwrap();
         assert_eq!(first, second);
     }
 }
