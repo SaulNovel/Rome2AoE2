@@ -5,10 +5,13 @@ use std::path::{Component, Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::OnceLock;
 
-use rpfm_lib::files::{pack::Pack, Container, ContainerPath, FileType, RFile};
-use rpfm_lib::files::{rigidmodel::{MeshBlock, RigidModel}, Decodeable};
 use rpfm_extensions::dependencies::Dependencies;
 use rpfm_extensions::gltf::{gltf_from_rigid, save_gltf_to_disk};
+use rpfm_lib::files::{pack::Pack, Container, ContainerPath, FileType, RFile};
+use rpfm_lib::files::{
+    rigidmodel::{MeshBlock, RigidModel},
+    Decodeable,
+};
 use rpfm_lib::games::supported_games::{SupportedGames, KEY_ROME_2};
 use rpfm_lib::games::{pfh_file_type::PFHFileType, pfh_version::PFHVersion};
 use serde_json::json;
@@ -45,6 +48,10 @@ enum Command {
         input: PathBuf,
         validate_decode: bool,
     },
+    InspectSkeleton {
+        anim: PathBuf,
+        inverse_bind: PathBuf,
+    },
     ExportRmv2Gltf {
         input: PathBuf,
         output: PathBuf,
@@ -59,7 +66,7 @@ enum LodSelection {
 }
 
 fn usage() -> &'static str {
-    "Usage:\n  rome2aoe2-pack list --pack <pack-file>\n  rome2aoe2-pack contains --pack <pack-file> --path <pack-relative-path>\n  rome2aoe2-pack extract --pack <pack-file> --path <pack-relative-path> --output-root <directory>\n  rome2aoe2-pack create-test-pack --spec <json-file> --output <pack-file>\n  rome2aoe2-pack inspect-rmv2 --input <local-rmv2-file> [--decode]\n  rome2aoe2-pack export-rmv2-gltf --input <local-rmv2-file> --output <output.gltf> --lod <highest|index>"
+    "Usage:\n  rome2aoe2-pack list --pack <pack-file>\n  rome2aoe2-pack contains --pack <pack-file> --path <pack-relative-path>\n  rome2aoe2-pack extract --pack <pack-file> --path <pack-relative-path> --output-root <directory>\n  rome2aoe2-pack create-test-pack --spec <json-file> --output <pack-file>\n  rome2aoe2-pack inspect-rmv2 --input <local-rmv2-file> [--decode]\n  rome2aoe2-pack inspect-skeleton --anim <local-anim-file> --inverse-bind <local-bone-inv-trans-mats-file>\n  rome2aoe2-pack export-rmv2-gltf --input <local-rmv2-file> --output <output.gltf> --lod <highest|index>"
 }
 
 fn parse_pack_relative_path(value: &str) -> Result<PackRelativePath, String> {
@@ -114,6 +121,8 @@ fn parse_command(arguments: &[String]) -> Result<Command, String> {
     let mut spec = None;
     let mut output = None;
     let mut input = None;
+    let mut anim = None;
+    let mut inverse_bind = None;
     let mut validate_decode = false;
     let mut lod = None;
     let mut index = 1;
@@ -136,6 +145,8 @@ fn parse_command(arguments: &[String]) -> Result<Command, String> {
             "--spec" => spec = Some(PathBuf::from(value)),
             "--output" => output = Some(PathBuf::from(value)),
             "--input" => input = Some(PathBuf::from(value)),
+            "--anim" => anim = Some(PathBuf::from(value)),
+            "--inverse-bind" => inverse_bind = Some(PathBuf::from(value)),
             "--lod" => lod = Some(parse_lod_selection(value)?),
             _ => return Err(format!("Unknown option '{}'.\n{}", option, usage())),
         }
@@ -151,6 +162,12 @@ fn parse_command(arguments: &[String]) -> Result<Command, String> {
         return Ok(Command::InspectRmv2 {
             input: input.ok_or_else(|| "Missing --input".to_owned())?,
             validate_decode,
+        });
+    }
+    if operation == "inspect-skeleton" {
+        return Ok(Command::InspectSkeleton {
+            anim: anim.ok_or_else(|| "Missing --anim".to_owned())?,
+            inverse_bind: inverse_bind.ok_or_else(|| "Missing --inverse-bind".to_owned())?,
         });
     }
     if operation == "export-rmv2-gltf" {
@@ -181,9 +198,422 @@ fn parse_lod_selection(value: &str) -> Result<LodSelection, String> {
     if value == "highest" {
         return Ok(LodSelection::Highest);
     }
-    value.parse::<usize>().map(LodSelection::Index).map_err(|_| {
-        format!("Invalid --lod '{}': expected 'highest' or a non-negative LOD index", value)
+    value
+        .parse::<usize>()
+        .map(LodSelection::Index)
+        .map_err(|_| {
+            format!(
+                "Invalid --lod '{}': expected 'highest' or a non-negative LOD index",
+                value
+            )
+        })
+}
+
+const SKELETON_INSPECTION_FORMAT: &str = "rome2aoe2.skeleton-inspection";
+const SKELETON_INSPECTION_VERSION: u32 = 1;
+const MATRIX_INVERSION_EPSILON: f64 = 1.0e-12;
+const MATRIX_COMPARISON_EPSILON: f64 = 1.0e-8;
+
+type Matrix4 = [[f64; 4]; 4];
+
+#[derive(Clone, Debug)]
+struct SkeletonBone {
+    name: String,
+    parent: Option<usize>,
+}
+
+#[derive(Clone, Debug)]
+struct SkeletonAnim {
+    skeleton_id: String,
+    bones: Vec<SkeletonBone>,
+    payload_bytes: usize,
+}
+
+fn take<const N: usize>(bytes: &[u8], offset: &mut usize, label: &str) -> Result<[u8; N], String> {
+    let end = offset
+        .checked_add(N)
+        .ok_or_else(|| format!("{} offset overflows", label))?;
+    let slice = bytes
+        .get(*offset..end)
+        .ok_or_else(|| format!("Truncated input while reading {} at byte {}", label, offset))?;
+    *offset = end;
+    Ok(slice.try_into().expect("slice length was checked"))
+}
+
+fn read_u16(bytes: &[u8], offset: &mut usize, label: &str) -> Result<u16, String> {
+    Ok(u16::from_le_bytes(take(bytes, offset, label)?))
+}
+
+fn read_u32(bytes: &[u8], offset: &mut usize, label: &str) -> Result<u32, String> {
+    Ok(u32::from_le_bytes(take(bytes, offset, label)?))
+}
+
+fn read_i32(bytes: &[u8], offset: &mut usize, label: &str) -> Result<i32, String> {
+    Ok(i32::from_le_bytes(take(bytes, offset, label)?))
+}
+
+fn read_f32(bytes: &[u8], offset: &mut usize, label: &str) -> Result<f32, String> {
+    Ok(f32::from_le_bytes(take(bytes, offset, label)?))
+}
+
+fn read_sized_string_u8(bytes: &[u8], offset: &mut usize, label: &str) -> Result<String, String> {
+    let length = read_u16(bytes, offset, &format!("{} length", label))? as usize;
+    let end = offset
+        .checked_add(length)
+        .ok_or_else(|| format!("{} length overflows", label))?;
+    let value = bytes
+        .get(*offset..end)
+        .ok_or_else(|| format!("Truncated input while reading {} at byte {}", label, offset))?;
+    *offset = end;
+    String::from_utf8(value.to_vec()).map_err(|_| format!("{} is not valid UTF-8", label))
+}
+
+fn validate_hierarchy(bones: &[SkeletonBone]) -> Result<Vec<usize>, String> {
+    let mut names = std::collections::BTreeSet::new();
+    for (index, bone) in bones.iter().enumerate() {
+        if bone.name.is_empty() {
+            return Err(format!("Bone {} has an empty name", index));
+        }
+        if !names.insert(bone.name.clone()) {
+            return Err(format!(
+                "Duplicate bone name '{}' at index {}",
+                bone.name, index
+            ));
+        }
+        if let Some(parent) = bone.parent {
+            if parent >= bones.len() {
+                return Err(format!(
+                    "Bone {} ('{}') has invalid parent index {} for {} bones",
+                    index,
+                    bone.name,
+                    parent,
+                    bones.len()
+                ));
+            }
+        }
+    }
+
+    fn visit(index: usize, bones: &[SkeletonBone], states: &mut [u8]) -> Result<(), String> {
+        match states[index] {
+            1 => {
+                return Err(format!(
+                    "Skeleton hierarchy contains a cycle at bone {} ('{}')",
+                    index, bones[index].name
+                ))
+            }
+            2 => return Ok(()),
+            _ => {}
+        }
+        states[index] = 1;
+        if let Some(parent) = bones[index].parent {
+            visit(parent, bones, states)?;
+        }
+        states[index] = 2;
+        Ok(())
+    }
+
+    let mut states = vec![0; bones.len()];
+    for index in 0..bones.len() {
+        visit(index, bones, &mut states)?;
+    }
+    Ok(bones
+        .iter()
+        .enumerate()
+        .filter_map(|(index, bone)| bone.parent.is_none().then_some(index))
+        .collect())
+}
+
+fn decode_skeleton_anim(bytes: &[u8]) -> Result<SkeletonAnim, String> {
+    let mut offset = 0;
+    let version = read_u32(bytes, &mut offset, "animation version")?;
+    if version != 5 {
+        return Err(format!(
+            "Unsupported skeleton .anim version {}; expected 5",
+            version
+        ));
+    }
+    let _unknown = read_u32(bytes, &mut offset, "animation header field")?;
+    let frame_rate = read_f32(bytes, &mut offset, "animation frame rate")?;
+    if !frame_rate.is_finite() {
+        return Err("Skeleton .anim frame rate is not finite".to_owned());
+    }
+    let skeleton_id = read_sized_string_u8(bytes, &mut offset, "skeleton identifier")?;
+    if skeleton_id.is_empty() {
+        return Err("Skeleton identifier is empty".to_owned());
+    }
+    let end_time = read_f32(bytes, &mut offset, "animation end time")?;
+    if !end_time.is_finite() {
+        return Err("Skeleton .anim end time is not finite".to_owned());
+    }
+    let bone_count = read_u32(bytes, &mut offset, "bone count")? as usize;
+    let mut bones = Vec::with_capacity(bone_count);
+    for index in 0..bone_count {
+        let name = read_sized_string_u8(bytes, &mut offset, &format!("bone {} name", index))?;
+        let raw_parent = read_i32(bytes, &mut offset, &format!("bone {} parent", index))?;
+        let parent = match raw_parent {
+            -1 => None,
+            value if value >= 0 => Some(value as usize),
+            value => {
+                return Err(format!(
+                    "Bone {} has unsupported parent sentinel {}",
+                    index, value
+                ))
+            }
+        };
+        bones.push(SkeletonBone { name, parent });
+    }
+    validate_hierarchy(&bones)?;
+    Ok(SkeletonAnim {
+        skeleton_id,
+        bones,
+        payload_bytes: bytes.len() - offset,
     })
+}
+
+fn decode_inverse_bind(bytes: &[u8]) -> Result<(u32, Vec<Matrix4>), String> {
+    let mut offset = 0;
+    let version = read_u32(bytes, &mut offset, "inverse-bind version")?;
+    if version != 1 {
+        return Err(format!(
+            "Unsupported inverse-bind version {}; expected 1",
+            version
+        ));
+    }
+    let count = read_u32(bytes, &mut offset, "inverse-bind matrix count")? as usize;
+    let expected = 8usize
+        .checked_add(
+            count
+                .checked_mul(48)
+                .ok_or_else(|| "Inverse-bind matrix byte count overflows".to_owned())?,
+        )
+        .ok_or_else(|| "Inverse-bind file size overflows".to_owned())?;
+    if bytes.len() != expected {
+        return Err(format!(
+            "Inverse-bind file size mismatch: declared {} matrices require {} bytes, found {}",
+            count,
+            expected,
+            bytes.len()
+        ));
+    }
+    let mut matrices = Vec::with_capacity(count);
+    for matrix_index in 0..count {
+        let mut stored = [0.0; 12];
+        for (entry, value) in stored.iter_mut().enumerate() {
+            *value = read_f32(
+                bytes,
+                &mut offset,
+                &format!(
+                    "inverse-bind matrix {} stored entry {}",
+                    matrix_index, entry
+                ),
+            )? as f64;
+            if !value.is_finite() {
+                return Err(format!(
+                    "Inverse-bind matrix {} contains a non-finite value at stored entry {}",
+                    matrix_index, entry
+                ));
+            }
+        }
+        let mut matrix = [[0.0; 4]; 4];
+        for row in 0..3 {
+            for column in 0..4 {
+                // The file stores a row-vector affine 4x3: three basis rows
+                // followed by a translation row. Normalize it by transposing
+                // into the column-vector 4x4 convention used by this command.
+                matrix[row][column] = stored[column * 3 + row];
+            }
+        }
+        matrix[3][3] = 1.0;
+        matrices.push(matrix);
+    }
+    Ok((version, matrices))
+}
+
+fn multiply_matrix(left: &Matrix4, right: &Matrix4) -> Matrix4 {
+    let mut result = [[0.0; 4]; 4];
+    for row in 0..4 {
+        for column in 0..4 {
+            result[row][column] = (0..4).map(|k| left[row][k] * right[k][column]).sum();
+        }
+    }
+    result
+}
+
+fn matrices_approximately_equal(left: &Matrix4, right: &Matrix4) -> bool {
+    left.iter().flatten().zip(right.iter().flatten()).all(|(left, right)| {
+        let scale = 1.0f64.max(left.abs()).max(right.abs());
+        (left - right).abs() <= MATRIX_COMPARISON_EPSILON * scale
+    })
+}
+
+fn invert_matrix(matrix: &Matrix4, label: &str) -> Result<Matrix4, String> {
+    let mut augmented = [[0.0; 8]; 4];
+    for row in 0..4 {
+        for column in 0..4 {
+            augmented[row][column] = matrix[row][column];
+        }
+        augmented[row][row + 4] = 1.0;
+    }
+    for column in 0..4 {
+        let pivot_row = (column..4)
+            .max_by(|left, right| {
+                augmented[*left][column]
+                    .abs()
+                    .total_cmp(&augmented[*right][column].abs())
+            })
+            .expect("pivot range is nonempty");
+        let pivot = augmented[pivot_row][column];
+        if !pivot.is_finite() || pivot.abs() <= MATRIX_INVERSION_EPSILON {
+            return Err(format!("{} is singular at column {}", label, column));
+        }
+        augmented.swap(column, pivot_row);
+        for value in &mut augmented[column] {
+            *value /= pivot;
+        }
+        for row in 0..4 {
+            if row == column {
+                continue;
+            }
+            let factor = augmented[row][column];
+            for entry in 0..8 {
+                augmented[row][entry] -= factor * augmented[column][entry];
+            }
+        }
+    }
+    let mut inverse = [[0.0; 4]; 4];
+    for row in 0..4 {
+        inverse[row].copy_from_slice(&augmented[row][4..8]);
+    }
+    if inverse.iter().flatten().any(|value| !value.is_finite()) {
+        return Err(format!("{} inverse contains a non-finite value", label));
+    }
+    Ok(inverse)
+}
+
+fn inspect_skeleton_bytes(
+    anim_bytes: &[u8],
+    inverse_bind_bytes: &[u8],
+) -> Result<serde_json::Value, String> {
+    let anim = decode_skeleton_anim(anim_bytes)?;
+    let roots = validate_hierarchy(&anim.bones)?;
+    let (inverse_bind_version, inverse_bind_matrices) = decode_inverse_bind(inverse_bind_bytes)?;
+    if anim.bones.len() != inverse_bind_matrices.len() {
+        return Err(format!(
+            "Bone-count/matrix-count mismatch: .anim contains {} bones, inverse-bind file contains {} matrices",
+            anim.bones.len(), inverse_bind_matrices.len()
+        ));
+    }
+    let mut world_bind_matrices = Vec::with_capacity(anim.bones.len());
+    for (index, matrix) in inverse_bind_matrices.iter().enumerate() {
+        let world = invert_matrix(
+            matrix,
+            &format!("Inverse-bind matrix {}", index),
+        )?;
+        if !matrices_approximately_equal(
+            &multiply_matrix(matrix, &world),
+            &[
+                [1.0, 0.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0, 0.0],
+                [0.0, 0.0, 1.0, 0.0],
+                [0.0, 0.0, 0.0, 1.0],
+            ],
+        ) {
+            return Err(format!("Inverse-bind matrix {} failed inversion verification", index));
+        }
+        world_bind_matrices.push(world);
+    }
+    let mut local_bind_matrices = Vec::with_capacity(anim.bones.len());
+    for (index, bone) in anim.bones.iter().enumerate() {
+        let local = if let Some(parent) = bone.parent {
+            multiply_matrix(&inverse_bind_matrices[parent], &world_bind_matrices[index])
+        } else {
+            world_bind_matrices[index]
+        };
+        if local.iter().flatten().any(|value| !value.is_finite()) {
+            return Err(format!(
+                "Derived local bind matrix {} contains a non-finite value",
+                index
+            ));
+        }
+        if let Some(parent) = bone.parent {
+            if !matrices_approximately_equal(
+                &multiply_matrix(&world_bind_matrices[parent], &local),
+                &world_bind_matrices[index],
+            ) {
+                return Err(format!("Derived local bind matrix {} failed composition verification", index));
+            }
+        }
+        local_bind_matrices.push(local);
+    }
+    let bones = anim
+        .bones
+        .iter()
+        .enumerate()
+        .map(|(index, bone)| {
+            json!({
+                "index": index,
+                "name": bone.name,
+                "parent": bone.parent,
+                "local_bind_matrix": local_bind_matrices[index],
+                "world_bind_matrix": world_bind_matrices[index],
+                "inverse_bind_matrix": inverse_bind_matrices[index],
+            })
+        })
+        .collect::<Vec<_>>();
+    let attachment_ids = [1usize, 2, 3, 4, 5, 23]
+        .into_iter()
+        .map(|bone_id| {
+            let bone = anim.bones.get(bone_id).ok_or_else(|| {
+                format!(
+                    "Known attachment bone ID {} is outside the skeleton",
+                    bone_id
+                )
+            })?;
+            Ok(json!({"bone_id": bone_id, "bone_name": bone.name}))
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    Ok(json!({
+        "format": SKELETON_INSPECTION_FORMAT,
+        "version": SKELETON_INSPECTION_VERSION,
+        "skeleton_id": anim.skeleton_id,
+        "anim_version": 5,
+        "inverse_bind_version": inverse_bind_version,
+        "bone_count": anim.bones.len(),
+        "roots": roots,
+        "anim_payload": {
+            "additional_pose_data_present": anim.payload_bytes != 0,
+            "bytes": anim.payload_bytes,
+            "decoded": false,
+        },
+        "matrix_convention": {
+            "source_storage": "row-major affine 4x3 using row vectors; translation is the fourth stored row",
+            "output_storage": "row-major 4x4 JSON arrays",
+            "vectors": "column vectors (p' = M * p)",
+            "translation": "fourth column",
+            "composition": "world = parent_world * local",
+            "gltf_conversion": "output matrices already use glTF's column-vector transform convention; flatten column-major when writing a glTF MAT4 accessor",
+        },
+        "resolved_attachment_bone_ids": attachment_ids,
+        "bones": bones,
+    }))
+}
+
+fn inspect_skeleton(anim: &Path, inverse_bind: &Path) -> Result<serde_json::Value, String> {
+    let anim_bytes = fs::read(anim).map_err(|error| {
+        format!(
+            "Unable to read skeleton .anim '{}': {}",
+            anim.display(),
+            error
+        )
+    })?;
+    let inverse_bind_bytes = fs::read(inverse_bind).map_err(|error| {
+        format!(
+            "Unable to read inverse-bind file '{}': {}",
+            inverse_bind.display(),
+            error
+        )
+    })?;
+    inspect_skeleton_bytes(&anim_bytes, &inverse_bind_bytes)
 }
 
 fn rome_2_game() -> Result<&'static rpfm_lib::games::GameInfo, String> {
@@ -656,7 +1086,10 @@ fn selected_lod_index(selection: LodSelection, lod_count: usize) -> Result<usize
 
 fn output_gltf_path(output: &Path) -> Result<(), String> {
     if output.file_name().is_none() {
-        return Err(format!("Invalid glTF output path '{}': file name is required", output.display()));
+        return Err(format!(
+            "Invalid glTF output path '{}': file name is required",
+            output.display()
+        ));
     }
     if !output
         .extension()
@@ -684,11 +1117,13 @@ fn ensure_gltf_output_parent(output: &Path) -> Result<(), String> {
 }
 
 fn filtered_model_for_lod(model: &RigidModel, lod_index: usize) -> Result<RigidModel, String> {
-    let selected_lod = model
-        .lods()
-        .get(lod_index)
-        .cloned()
-        .ok_or_else(|| format!("Invalid LOD index {}: RMV2 contains {} LOD(s)", lod_index, model.lods().len()))?;
+    let selected_lod = model.lods().get(lod_index).cloned().ok_or_else(|| {
+        format!(
+            "Invalid LOD index {}: RMV2 contains {} LOD(s)",
+            lod_index,
+            model.lods().len()
+        )
+    })?;
     let mut filtered_model = model.clone();
     *filtered_model.lods_mut() = vec![selected_lod];
     Ok(filtered_model)
@@ -749,19 +1184,36 @@ fn preserve_gltf_material_identity(
     output: &Path,
     source_materials: &[serde_json::Value],
 ) -> Result<(), String> {
-    let mut document: serde_json::Value = serde_json::from_slice(
-        &fs::read(output)
-            .map_err(|error| format!("Unable to read generated glTF '{}': {}", output.display(), error))?,
-    )
-    .map_err(|error| format!("Generated glTF '{}' is invalid JSON: {}", output.display(), error))?;
+    let mut document: serde_json::Value =
+        serde_json::from_slice(&fs::read(output).map_err(|error| {
+            format!(
+                "Unable to read generated glTF '{}': {}",
+                output.display(),
+                error
+            )
+        })?)
+        .map_err(|error| {
+            format!(
+                "Generated glTF '{}' is invalid JSON: {}",
+                output.display(),
+                error
+            )
+        })?;
     let gltf_materials = document
         .get_mut("materials")
         .and_then(serde_json::Value::as_array_mut)
-        .ok_or_else(|| format!("Generated glTF '{}' has no material array", output.display()))?;
+        .ok_or_else(|| {
+            format!(
+                "Generated glTF '{}' has no material array",
+                output.display()
+            )
+        })?;
     if gltf_materials.len() != source_materials.len() {
         return Err(format!(
             "Generated glTF '{}' has {} material(s), but selected RMV2 LOD has {} mesh material(s)",
-            output.display(), gltf_materials.len(), source_materials.len()
+            output.display(),
+            gltf_materials.len(),
+            source_materials.len()
         ));
     }
     for (gltf_material, source_material) in gltf_materials.iter_mut().zip(source_materials) {
@@ -775,8 +1227,17 @@ fn preserve_gltf_material_identity(
         object.insert("name".to_owned(), json!(source_name));
         object.insert("extras".to_owned(), json!({"rome2aoe2": source_material}));
     }
-    fs::write(output, serde_json::to_vec_pretty(&document).expect("glTF JSON must serialize"))
-        .map_err(|error| format!("Unable to update glTF material metadata '{}': {}", output.display(), error))
+    fs::write(
+        output,
+        serde_json::to_vec_pretty(&document).expect("glTF JSON must serialize"),
+    )
+    .map_err(|error| {
+        format!(
+            "Unable to update glTF material metadata '{}': {}",
+            output.display(),
+            error
+        )
+    })
 }
 
 fn export_rmv2_gltf(
@@ -846,8 +1307,14 @@ fn export_rmv2_gltf(
     preserve_gltf_material_identity(output, &source_materials)?;
 
     Ok(gltf_export_result(
-        input.file_name().and_then(|name| name.to_str()).unwrap_or("<non-utf8>"),
-        output.file_name().and_then(|name| name.to_str()).unwrap_or("<non-utf8>"),
+        input
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("<non-utf8>"),
+        output
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("<non-utf8>"),
         &model,
         lod_index,
         mesh_count,
@@ -863,9 +1330,8 @@ fn run(command: Command) -> Result<serde_json::Value, String> {
             input,
             validate_decode,
         } => inspect_rmv2(&input, validate_decode),
-        Command::ExportRmv2Gltf { input, output, lod } => {
-            export_rmv2_gltf(&input, &output, lod)
-        }
+        Command::InspectSkeleton { anim, inverse_bind } => inspect_skeleton(&anim, &inverse_bind),
+        Command::ExportRmv2Gltf { input, output, lod } => export_rmv2_gltf(&input, &output, lod),
         Command::CreateTestPack { spec, output } => {
             let document: serde_json::Value =
                 serde_json::from_slice(&fs::read(&spec).map_err(|e| e.to_string())?)
@@ -1150,6 +1616,220 @@ mod tests {
         assert_eq!(first, second);
     }
 
+    fn synthetic_anim(version: u32, parents: &[i32]) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&version.to_le_bytes());
+        bytes.extend_from_slice(&1u32.to_le_bytes());
+        bytes.extend_from_slice(&20.0f32.to_le_bytes());
+        let skeleton_id = b"synthetic_skeleton";
+        bytes.extend_from_slice(&(skeleton_id.len() as u16).to_le_bytes());
+        bytes.extend_from_slice(skeleton_id);
+        bytes.extend_from_slice(&0.1f32.to_le_bytes());
+        bytes.extend_from_slice(&(parents.len() as u32).to_le_bytes());
+        for (index, parent) in parents.iter().enumerate() {
+            let name = format!("bone_{:02}", index);
+            bytes.extend_from_slice(&(name.len() as u16).to_le_bytes());
+            bytes.extend_from_slice(name.as_bytes());
+            bytes.extend_from_slice(&parent.to_le_bytes());
+        }
+        bytes.extend_from_slice(&[0xaa, 0xbb, 0xcc, 0xdd]);
+        bytes
+    }
+
+    fn translation_matrix(x: f32, y: f32, z: f32) -> [[f32; 4]; 3] {
+        [[1.0, 0.0, 0.0, x], [0.0, 1.0, 0.0, y], [0.0, 0.0, 1.0, z]]
+    }
+
+    fn synthetic_inverse_bind(version: u32, matrices: &[[[f32; 4]; 3]]) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&version.to_le_bytes());
+        bytes.extend_from_slice(&(matrices.len() as u32).to_le_bytes());
+        for matrix in matrices {
+            for stored_row in 0..4 {
+                for stored_column in 0..3 {
+                    bytes.extend_from_slice(&matrix[stored_column][stored_row].to_le_bytes());
+                }
+            }
+        }
+        bytes
+    }
+
+    fn valid_parents() -> Vec<i32> {
+        let mut parents = vec![-1];
+        parents.extend((0..23).map(|index| index as i32));
+        parents
+    }
+
+    fn identity_inverse_binds(count: usize) -> Vec<[[f32; 4]; 3]> {
+        vec![translation_matrix(0.0, 0.0, 0.0); count]
+    }
+
+    #[test]
+    fn skeleton_accepts_valid_synthetic_hierarchy() {
+        let parents = valid_parents();
+        let result = inspect_skeleton_bytes(
+            &synthetic_anim(5, &parents),
+            &synthetic_inverse_bind(1, &identity_inverse_binds(parents.len())),
+        )
+        .unwrap();
+        assert_eq!(result["bone_count"], 24);
+        assert_eq!(result["anim_payload"]["bytes"], 4);
+    }
+
+    #[test]
+    fn skeleton_accepts_multiple_roots() {
+        let mut parents = valid_parents();
+        parents[7] = -1;
+        let result = inspect_skeleton_bytes(
+            &synthetic_anim(5, &parents),
+            &synthetic_inverse_bind(1, &identity_inverse_binds(parents.len())),
+        )
+        .unwrap();
+        assert_eq!(result["roots"], json!([0, 7]));
+    }
+
+    #[test]
+    fn skeleton_rejects_invalid_parent_index() {
+        let mut parents = valid_parents();
+        parents[3] = 99;
+        assert!(decode_skeleton_anim(&synthetic_anim(5, &parents))
+            .unwrap_err()
+            .contains("invalid parent index"));
+    }
+
+    #[test]
+    fn skeleton_rejects_direct_cycle() {
+        let mut parents = valid_parents();
+        parents[3] = 3;
+        assert!(decode_skeleton_anim(&synthetic_anim(5, &parents))
+            .unwrap_err()
+            .contains("cycle"));
+    }
+
+    #[test]
+    fn skeleton_rejects_indirect_cycle() {
+        let mut parents = valid_parents();
+        parents[2] = 3;
+        parents[3] = 2;
+        assert!(decode_skeleton_anim(&synthetic_anim(5, &parents))
+            .unwrap_err()
+            .contains("cycle"));
+    }
+
+    #[test]
+    fn skeleton_rejects_mismatched_counts() {
+        let parents = valid_parents();
+        let error = inspect_skeleton_bytes(
+            &synthetic_anim(5, &parents),
+            &synthetic_inverse_bind(1, &identity_inverse_binds(parents.len() - 1)),
+        )
+        .unwrap_err();
+        assert!(error.contains("Bone-count/matrix-count mismatch"));
+    }
+
+    #[test]
+    fn skeleton_rejects_truncated_matrix_file() {
+        let mut bytes = synthetic_inverse_bind(1, &identity_inverse_binds(1));
+        bytes.pop();
+        assert!(decode_inverse_bind(&bytes)
+            .unwrap_err()
+            .contains("file size mismatch"));
+    }
+
+    #[test]
+    fn skeleton_rejects_non_finite_matrix() {
+        let mut matrices = identity_inverse_binds(1);
+        matrices[0][0][0] = f32::NAN;
+        assert!(decode_inverse_bind(&synthetic_inverse_bind(1, &matrices))
+            .unwrap_err()
+            .contains("non-finite"));
+    }
+
+    #[test]
+    fn skeleton_rejects_singular_matrix() {
+        let parents = valid_parents();
+        let mut matrices = identity_inverse_binds(parents.len());
+        matrices[3][0] = [0.0; 4];
+        assert!(inspect_skeleton_bytes(
+            &synthetic_anim(5, &parents),
+            &synthetic_inverse_bind(1, &matrices),
+        )
+        .unwrap_err()
+        .contains("singular"));
+    }
+
+    #[test]
+    fn skeleton_reconstructs_deterministic_world_bind() {
+        let parents = valid_parents();
+        let mut matrices = identity_inverse_binds(parents.len());
+        matrices[0] = translation_matrix(-2.0, -3.0, -4.0);
+        let result = inspect_skeleton_bytes(
+            &synthetic_anim(5, &parents),
+            &synthetic_inverse_bind(1, &matrices),
+        )
+        .unwrap();
+        assert_eq!(result["bones"][0]["world_bind_matrix"][0][3], 2.0);
+        assert_eq!(result["bones"][0]["world_bind_matrix"][1][3], 3.0);
+        assert_eq!(result["bones"][0]["world_bind_matrix"][2][3], 4.0);
+    }
+
+    #[test]
+    fn skeleton_derives_deterministic_local_bind() {
+        let parents = valid_parents();
+        let mut matrices = identity_inverse_binds(parents.len());
+        matrices[0] = translation_matrix(-2.0, 0.0, 0.0);
+        matrices[1] = translation_matrix(-5.0, 0.0, 0.0);
+        let result = inspect_skeleton_bytes(
+            &synthetic_anim(5, &parents),
+            &synthetic_inverse_bind(1, &matrices),
+        )
+        .unwrap();
+        assert_eq!(result["bones"][1]["local_bind_matrix"][0][3], 3.0);
+    }
+
+    #[test]
+    fn skeleton_resolves_attachment_bone_ids() {
+        let parents = valid_parents();
+        let result = inspect_skeleton_bytes(
+            &synthetic_anim(5, &parents),
+            &synthetic_inverse_bind(1, &identity_inverse_binds(parents.len())),
+        )
+        .unwrap();
+        assert_eq!(
+            result["resolved_attachment_bone_ids"][0],
+            json!({"bone_id": 1, "bone_name": "bone_01"})
+        );
+        assert_eq!(
+            result["resolved_attachment_bone_ids"][5],
+            json!({"bone_id": 23, "bone_name": "bone_23"})
+        );
+    }
+
+    #[test]
+    fn skeleton_json_is_deterministic() {
+        let parents = valid_parents();
+        let anim = synthetic_anim(5, &parents);
+        let inverse = synthetic_inverse_bind(1, &identity_inverse_binds(parents.len()));
+        let first =
+            serde_json::to_string(&inspect_skeleton_bytes(&anim, &inverse).unwrap()).unwrap();
+        let second =
+            serde_json::to_string(&inspect_skeleton_bytes(&anim, &inverse).unwrap()).unwrap();
+        assert_eq!(first, second);
+    }
+
+    #[test]
+    fn skeleton_rejects_unsupported_versions() {
+        let parents = valid_parents();
+        assert!(decode_skeleton_anim(&synthetic_anim(4, &parents))
+            .unwrap_err()
+            .contains("expected 5"));
+        assert!(
+            decode_inverse_bind(&synthetic_inverse_bind(2, &identity_inverse_binds(1)))
+                .unwrap_err()
+                .contains("expected 1")
+        );
+    }
+
     fn write_u16(bytes: &mut [u8], offset: usize, value: u16) {
         bytes[offset..offset + 2].copy_from_slice(&value.to_le_bytes());
     }
@@ -1335,11 +2015,18 @@ mod tests {
             source_material("crest", "DecalDirtmap", "crest_diffuse.dds"),
         ];
         preserve_gltf_material_identity(&output, &source).unwrap();
-        let result: serde_json::Value = serde_json::from_slice(&fs::read(&output).unwrap()).unwrap();
+        let result: serde_json::Value =
+            serde_json::from_slice(&fs::read(&output).unwrap()).unwrap();
         assert_eq!(result["materials"][0]["name"], "helmet");
         assert_eq!(result["materials"][1]["name"], "crest");
-        assert_eq!(result["materials"][0]["extras"]["rome2aoe2"]["type"], "WeightedDirtmap");
-        assert_eq!(result["materials"][0]["extras"]["rome2aoe2"]["textures"][0]["path"], "helmet_diffuse.dds");
+        assert_eq!(
+            result["materials"][0]["extras"]["rome2aoe2"]["type"],
+            "WeightedDirtmap"
+        );
+        assert_eq!(
+            result["materials"][0]["extras"]["rome2aoe2"]["textures"][0]["path"],
+            "helmet_diffuse.dds"
+        );
         assert!(result.get("images").is_none());
         assert_eq!(result["accessors"], document["accessors"]);
         assert_eq!(result["buffers"], document["buffers"]);
@@ -1349,7 +2036,11 @@ mod tests {
     fn gltf_material_postprocessing_is_deterministic() {
         let temp = tempdir().unwrap();
         let document = json!({"asset": {"version": "2.0"}, "materials": [{}]});
-        let source = vec![source_material("helmet", "WeightedDirtmap", "helmet_diffuse.dds")];
+        let source = vec![source_material(
+            "helmet",
+            "WeightedDirtmap",
+            "helmet_diffuse.dds",
+        )];
         let first = temp.path().join("first.gltf");
         let second = temp.path().join("second.gltf");
         for output in [&first, &second] {

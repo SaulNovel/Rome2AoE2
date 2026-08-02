@@ -157,3 +157,95 @@ The next RMV2 milestone should assess whether the upstream exporter can be
 extended or wrapped to preserve usable skins, joint hierarchies, material names,
 and tangents for skinned body and cloak assets. It must remain separate from
 texture/decal resolution and animation import.
+
+## Rome II skeleton inspection
+
+The RMV2 `skeleton_id` value `rome_man_game` was resolved by enumerating the
+installed game's pack contents. Its resources are in `data.pack` at:
+
+- `animations/skeletons/rome_man_game.anim`
+- `animations/skeletons/rome_man_game.bone_inv_trans_mats`
+
+They can be inspected without copying game-derived data into the repository:
+
+```powershell
+rome2aoe2-pack inspect-skeleton `
+  --anim path\to\rome_man_game.anim `
+  --inverse-bind path\to\rome_man_game.bone_inv_trans_mats
+```
+
+The command emits deterministic `rome2aoe2.skeleton-inspection` version 1 JSON
+and never includes its input paths. It supports only the verified Rome II
+formats: skeleton `.anim` version 5 and inverse-bind version 1.
+
+### Hierarchy and bone indices
+
+The version-5 `.anim` header contains the skeleton identifier and serialized
+bone count. It is followed by an ordered sequence of length-prefixed UTF-8 bone
+names and signed 32-bit parent indices. Parent `-1` denotes a root; non-negative
+values index the same ordered bone array. Empty and duplicate names, invalid
+parents, and hierarchy cycles are rejected.
+
+The inspected file has 50 bones and six roots: indices 0 through 5. They are
+`bn_hips` and `bn_weapon_01` through `bn_weapon_05`. Bone 23 is `bn_head`.
+RMV2 weighted vertex bone indices and material attachment `bone_id` values use
+these same zero-based serialized array indices. Consequently attachment IDs
+1--5 resolve to the five weapon bones and attachment ID 23 resolves to the head.
+
+The `.anim` contains 2,412 bytes after the hierarchy. This is reported as
+additional pose data, but remains deliberately opaque: its compact pose sample
+encoding has not been established and this milestone does not decode it.
+
+### Inverse bind matrices and convention
+
+The version-1 `.bone_inv_trans_mats` file contains a version, a matrix count,
+and exactly 48 bytes per matrix. Rome II stores each transform as a row-major
+affine 4x3 using row vectors: three basis rows followed by a fourth translation
+row. The inspector transposes this into a normalized row-major 4x4 JSON matrix
+using column vectors (`p' = M * p`), translation in the fourth column, and
+composition `world = parent_world * local`.
+
+For each bone the normalized stored matrix is the inverse world-bind matrix.
+The inspector calculates:
+
+```text
+world_bind = inverse(inverse_world_bind)
+local_bind(root) = world_bind
+local_bind(child) = inverse(parent_world_bind) * child_world_bind
+```
+
+Matrix inversion uses a singular-pivot tolerance of `1e-12`. Reconstruction
+and composition checks use a relative/absolute scaled tolerance of `1e-8`.
+Every source and derived value must be finite. When these matrices are later
+written to a glTF `MAT4` accessor, their entries must be flattened column-major;
+the mathematical convention itself already matches glTF.
+
+### Real `rome_man_game` validation
+
+The local resources decode as `.anim` version 5 and inverse-bind version 1 with
+50 matching bones/matrices. The hierarchy is acyclic and all parents are valid.
+All 50 inverse-bind matrices invert successfully, and all reconstructed world
+and local bind matrices are finite. No unexpected hierarchy or transform issue
+was found.
+
+Using the helmet's decoded `crest_centre` attachment and the normalized
+column-vector convention, `world_bind[23] * crest_centre_local` is approximately:
+
+```text
+[-0.999999881, -0.000002595,  0.000002901, -0.000068934]
+[-0.000002938,  0.970109645, -0.242665963,  1.811605057]
+[-0.000002188, -0.242665945, -0.970109534, -0.022783698]
+[ 0,             0,             0,             1]
+```
+
+Its translation is approximately `[-0.000069, 1.811605, -0.022784]`. The basis
+is finite and approximately orthonormal. The helmet's measured model-space Y
+bounds are `1.490234..1.814453`, so the attachment lies at its top surface. The
+crest's untransformed bounds are approximately
+`[-0.041687,-0.178955,-0.121887]..[0.041687,0.178955,0.121887]`. This is a
+plausible metadata-derived crest anchor; no manual placement or Blender change
+was performed.
+
+The next milestone may use this inspection output to construct a static glTF
+skin and Blender armature, then validate crest placement. Animation decoding
+and shield/weapon slot mapping remain unresolved and are not part of this work.
