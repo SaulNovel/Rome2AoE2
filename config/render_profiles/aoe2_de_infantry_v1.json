@@ -1,0 +1,51 @@
+{
+  "format": "rome2aoe2.render-profile",
+  "version": 1,
+  "name": "aoe2_de_infantry_v1",
+  "camera": {
+    "projection": "orthographic",
+    "azimuth_degrees": 45.0,
+    "elevation_degrees": 30.0,
+    "orthographic_scale": 8.5,
+    "distance": 12.0
+  },
+  "target": {
+    "origin": [0.0, 0.0, 0.0],
+    "feet_anchor_pixels": [100, 100]
+  },
+  "lighting": {
+    "key_type": "sun",
+    "key_azimuth_degrees": 135.0,
+    "key_elevation_degrees": 70.0,
+    "key_strength": 3.0,
+    "key_angular_size_degrees": 12.0,
+    "ambient_strength": 0.35
+  },
+  "render": {
+    "engine": "CYCLES",
+    "width": 200,
+    "height": 200,
+    "resolution_percentage": 100,
+    "transparent_background": true,
+    "view_transform": "Standard",
+    "look": "None",
+    "exposure": 0.0,
+    "gamma": 1.0,
+    "film_transparent": true,
+    "alpha_mode": "STRAIGHT",
+    "anti_aliasing_samples": 32,
+    "shadow_pass": "separate"
+  },
+  "directions": {
+    "count": 8,
+    "order": ["south", "southwest", "west", "northwest", "north", "northeast", "east", "southeast"],
+    "clockwise": true
+  },
+  "canvas": {
+    "policy": "stable_profile_canvas",
+    "anchor_pixels": [100, 100]
+  },
+  "sampling": {
+    "mode": "source_samples"
+  }
+}

@@ -143,3 +143,6 @@ set_tests_properties(Rome2AssetExtractionTests PROPERTIES WORKING_DIRECTORY ${CM
 
 add_test(NAME RMV2ManifestExportTests COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_SOURCE_DIR}/tests/RMV2ManifestExportTests.py)
 set_tests_properties(RMV2ManifestExportTests PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
+add_test(NAME AoE2RenderCalibrationTests COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_SOURCE_DIR}/tests/AoE2RenderCalibrationTests.py)
+set_tests_properties(AoE2RenderCalibrationTests PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})

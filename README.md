@@ -606,6 +606,13 @@ Responsibilities include:
 
 The Blender stage should be reproducible and require no manual interaction.
 
+Before bulk sprite rendering, the pipeline uses the versioned AoE2 DE infantry
+render-calibration profile documented in
+[`docs/RESEARCH/AOE2_DE_RENDER_CALIBRATION.md`](docs/RESEARCH/AOE2_DE_RENDER_CALIBRATION.md).
+It fixes an orthographic camera, stable feet anchor/canvas, direction policy,
+lighting, transparent color output, and a separate shadow pass. Calibration is
+kept distinct from future source-sample rendering and SMX encoding.
+
 ---
 
 ### Stage 7 — Frame Processing
