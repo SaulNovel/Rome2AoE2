@@ -344,3 +344,15 @@ Animations, weapon-slot mapping, shield/gladius/pilum placement, textures,
 decals, and final unit assembly remain outside this milestone. The next logical
 step is static multi-part skin reuse and attachment-slot evidence gathering,
 before any animation decoding is attempted.
+
+The byte-for-byte investigation of the Rome II version-5 transform payload is
+documented separately in [ROME2_ANIM_V5.md](ROME2_ANIM_V5.md). It establishes
+the discrete pose layout and the narrowly scoped discrete-frame decoder.
+
+Frame 0 of `sws_stand.anim` has now been applied to a single 50-bone Blender
+armature. Version-3 VMD provenance places the gladius on `weapon_02` and scutum
+on `weapon_03` using their pose-world matrices and identity local transforms.
+The fragment, rather than track presence, keeps the `weapon_05` pilum inactive.
+Both visible equipment bounds contain their expected hand points without manual
+correction, while the crest remains metadata-driven through bone 23 and
+`crest_centre`.

@@ -17,6 +17,8 @@ use rpfm_lib::games::supported_games::{SupportedGames, KEY_ROME_2};
 use rpfm_lib::games::{pfh_file_type::PFHFileType, pfh_version::PFHVersion};
 use serde_json::json;
 
+mod anim_v5;
+
 const RESULT_FORMAT: &str = "rome2aoe2.pack-result";
 const RESULT_VERSION: u32 = 1;
 
@@ -53,6 +55,12 @@ enum Command {
         anim: PathBuf,
         inverse_bind: PathBuf,
     },
+    InspectAnimationPose {
+        animation: PathBuf,
+        skeleton_anim: PathBuf,
+        inverse_bind: PathBuf,
+        frame: anim_v5::FrameSelection,
+    },
     ExportRmv2Gltf {
         input: PathBuf,
         output: PathBuf,
@@ -69,7 +77,7 @@ enum LodSelection {
 }
 
 fn usage() -> &'static str {
-    "Usage:\n  rome2aoe2-pack list --pack <pack-file>\n  rome2aoe2-pack contains --pack <pack-file> --path <pack-relative-path>\n  rome2aoe2-pack extract --pack <pack-file> --path <pack-relative-path> --output-root <directory>\n  rome2aoe2-pack create-test-pack --spec <json-file> --output <pack-file>\n  rome2aoe2-pack inspect-rmv2 --input <local-rmv2-file> [--decode]\n  rome2aoe2-pack inspect-skeleton --anim <local-anim-file> --inverse-bind <local-bone-inv-trans-mats-file>\n  rome2aoe2-pack export-rmv2-gltf --input <local-rmv2-file> --output <output.gltf> --lod <highest|index> [--skeleton-anim <local-anim-file> --inverse-bind <local-bone-inv-trans-mats-file>]"
+    "Usage:\n  rome2aoe2-pack list --pack <pack-file>\n  rome2aoe2-pack contains --pack <pack-file> --path <pack-relative-path>\n  rome2aoe2-pack extract --pack <pack-file> --path <pack-relative-path> --output-root <directory>\n  rome2aoe2-pack create-test-pack --spec <json-file> --output <pack-file>\n  rome2aoe2-pack inspect-rmv2 --input <local-rmv2-file> [--decode]\n  rome2aoe2-pack inspect-skeleton --anim <local-anim-file> --inverse-bind <local-bone-inv-trans-mats-file>\n  rome2aoe2-pack inspect-animation-pose --animation <clip.anim> --skeleton-anim <skeleton.anim> --inverse-bind <bone-inv-trans-mats> --frame <first|last|index>\n  rome2aoe2-pack export-rmv2-gltf --input <local-rmv2-file> --output <output.gltf> --lod <highest|index> [--skeleton-anim <local-anim-file> --inverse-bind <local-bone-inv-trans-mats-file>]"
 }
 
 fn parse_pack_relative_path(value: &str) -> Result<PackRelativePath, String> {
@@ -125,10 +133,12 @@ fn parse_command(arguments: &[String]) -> Result<Command, String> {
     let mut output = None;
     let mut input = None;
     let mut anim = None;
+    let mut animation = None;
     let mut skeleton_anim = None;
     let mut inverse_bind = None;
     let mut validate_decode = false;
     let mut lod = None;
+    let mut frame = None;
     let mut index = 1;
     while index < arguments.len() {
         let option = arguments[index].as_str();
@@ -150,9 +160,11 @@ fn parse_command(arguments: &[String]) -> Result<Command, String> {
             "--output" => output = Some(PathBuf::from(value)),
             "--input" => input = Some(PathBuf::from(value)),
             "--anim" => anim = Some(PathBuf::from(value)),
+            "--animation" => animation = Some(PathBuf::from(value)),
             "--skeleton-anim" => skeleton_anim = Some(PathBuf::from(value)),
             "--inverse-bind" => inverse_bind = Some(PathBuf::from(value)),
             "--lod" => lod = Some(parse_lod_selection(value)?),
+            "--frame" => frame = Some(anim_v5::FrameSelection::parse(value)?),
             _ => return Err(format!("Unknown option '{}'.\n{}", option, usage())),
         }
     }
@@ -173,6 +185,14 @@ fn parse_command(arguments: &[String]) -> Result<Command, String> {
         return Ok(Command::InspectSkeleton {
             anim: anim.ok_or_else(|| "Missing --anim".to_owned())?,
             inverse_bind: inverse_bind.ok_or_else(|| "Missing --inverse-bind".to_owned())?,
+        });
+    }
+    if operation == "inspect-animation-pose" {
+        return Ok(Command::InspectAnimationPose {
+            animation: animation.ok_or_else(|| "Missing --animation".to_owned())?,
+            skeleton_anim: skeleton_anim.ok_or_else(|| "Missing --skeleton-anim".to_owned())?,
+            inverse_bind: inverse_bind.ok_or_else(|| "Missing --inverse-bind".to_owned())?,
+            frame: frame.ok_or_else(|| "Missing --frame".to_owned())?,
         });
     }
     if operation == "export-rmv2-gltf" {
@@ -1739,6 +1759,12 @@ fn run(command: Command) -> Result<serde_json::Value, String> {
             validate_decode,
         } => inspect_rmv2(&input, validate_decode),
         Command::InspectSkeleton { anim, inverse_bind } => inspect_skeleton(&anim, &inverse_bind),
+        Command::InspectAnimationPose {
+            animation,
+            skeleton_anim,
+            inverse_bind,
+            frame,
+        } => anim_v5::inspect(&animation, &skeleton_anim, &inverse_bind, frame),
         Command::ExportRmv2Gltf {
             input,
             output,
