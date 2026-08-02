@@ -93,10 +93,20 @@ pack-loading rules.
 
 ## Direct dependency extraction
 
+Resolver manifest version 3 preserves the effective VMD `attach_point` on
+every dependency origin. The value is inherited from the nearest enclosing
+slot with a nonempty `attach_point`, including across nested VMD references;
+a nearer nonempty declaration overrides it. Origins without one contain
+`"attach_point": null`. Extraction accepts both resolver versions 2 and 3.
+For version 2, an absent field remains unavailable and is never inferred from
+the slot name or `slot_path`.
+
 `extract_dependency_manifest.py` extracts only resolver-listed `.rigid_model_v2`
 models and direct `decal_*` texture identifiers. It writes a separate
 `rome2aoe2.asset-extraction` manifest with `success`, `success-with-skips`, or
 `failed` status; missing raw assets and extraction failures are distinct.
+Origin records are copied unchanged into that manifest and subsequently into
+the deterministic RMV2 batch-export manifest.
 
 Praetorian Guard validation extracted all ten RMV2 models from
 `models3_rome2.pack`. Its raw `decal_diffuse` and `decal_normal` identifiers

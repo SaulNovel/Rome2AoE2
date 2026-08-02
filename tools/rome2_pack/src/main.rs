@@ -5,6 +5,7 @@ use std::path::{Component, Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::OnceLock;
 
+use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use rpfm_extensions::dependencies::Dependencies;
 use rpfm_extensions::gltf::{gltf_from_rigid, save_gltf_to_disk};
 use rpfm_lib::files::{pack::Pack, Container, ContainerPath, FileType, RFile};
@@ -56,6 +57,8 @@ enum Command {
         input: PathBuf,
         output: PathBuf,
         lod: LodSelection,
+        skeleton_anim: Option<PathBuf>,
+        inverse_bind: Option<PathBuf>,
     },
 }
 
@@ -66,7 +69,7 @@ enum LodSelection {
 }
 
 fn usage() -> &'static str {
-    "Usage:\n  rome2aoe2-pack list --pack <pack-file>\n  rome2aoe2-pack contains --pack <pack-file> --path <pack-relative-path>\n  rome2aoe2-pack extract --pack <pack-file> --path <pack-relative-path> --output-root <directory>\n  rome2aoe2-pack create-test-pack --spec <json-file> --output <pack-file>\n  rome2aoe2-pack inspect-rmv2 --input <local-rmv2-file> [--decode]\n  rome2aoe2-pack inspect-skeleton --anim <local-anim-file> --inverse-bind <local-bone-inv-trans-mats-file>\n  rome2aoe2-pack export-rmv2-gltf --input <local-rmv2-file> --output <output.gltf> --lod <highest|index>"
+    "Usage:\n  rome2aoe2-pack list --pack <pack-file>\n  rome2aoe2-pack contains --pack <pack-file> --path <pack-relative-path>\n  rome2aoe2-pack extract --pack <pack-file> --path <pack-relative-path> --output-root <directory>\n  rome2aoe2-pack create-test-pack --spec <json-file> --output <pack-file>\n  rome2aoe2-pack inspect-rmv2 --input <local-rmv2-file> [--decode]\n  rome2aoe2-pack inspect-skeleton --anim <local-anim-file> --inverse-bind <local-bone-inv-trans-mats-file>\n  rome2aoe2-pack export-rmv2-gltf --input <local-rmv2-file> --output <output.gltf> --lod <highest|index> [--skeleton-anim <local-anim-file> --inverse-bind <local-bone-inv-trans-mats-file>]"
 }
 
 fn parse_pack_relative_path(value: &str) -> Result<PackRelativePath, String> {
@@ -122,6 +125,7 @@ fn parse_command(arguments: &[String]) -> Result<Command, String> {
     let mut output = None;
     let mut input = None;
     let mut anim = None;
+    let mut skeleton_anim = None;
     let mut inverse_bind = None;
     let mut validate_decode = false;
     let mut lod = None;
@@ -146,6 +150,7 @@ fn parse_command(arguments: &[String]) -> Result<Command, String> {
             "--output" => output = Some(PathBuf::from(value)),
             "--input" => input = Some(PathBuf::from(value)),
             "--anim" => anim = Some(PathBuf::from(value)),
+            "--skeleton-anim" => skeleton_anim = Some(PathBuf::from(value)),
             "--inverse-bind" => inverse_bind = Some(PathBuf::from(value)),
             "--lod" => lod = Some(parse_lod_selection(value)?),
             _ => return Err(format!("Unknown option '{}'.\n{}", option, usage())),
@@ -171,10 +176,17 @@ fn parse_command(arguments: &[String]) -> Result<Command, String> {
         });
     }
     if operation == "export-rmv2-gltf" {
+        if skeleton_anim.is_some() != inverse_bind.is_some() {
+            return Err(
+                "Skinned export requires both --skeleton-anim and --inverse-bind".to_owned(),
+            );
+        }
         return Ok(Command::ExportRmv2Gltf {
             input: input.ok_or_else(|| "Missing --input".to_owned())?,
             output: output.ok_or_else(|| "Missing --output".to_owned())?,
             lod: lod.ok_or_else(|| "Missing --lod".to_owned())?,
+            skeleton_anim,
+            inverse_bind,
         });
     }
     let pack = pack.ok_or_else(|| format!("Missing --pack.\n{}", usage()))?;
@@ -440,10 +452,13 @@ fn multiply_matrix(left: &Matrix4, right: &Matrix4) -> Matrix4 {
 }
 
 fn matrices_approximately_equal(left: &Matrix4, right: &Matrix4) -> bool {
-    left.iter().flatten().zip(right.iter().flatten()).all(|(left, right)| {
-        let scale = 1.0f64.max(left.abs()).max(right.abs());
-        (left - right).abs() <= MATRIX_COMPARISON_EPSILON * scale
-    })
+    left.iter()
+        .flatten()
+        .zip(right.iter().flatten())
+        .all(|(left, right)| {
+            let scale = 1.0f64.max(left.abs()).max(right.abs());
+            (left - right).abs() <= MATRIX_COMPARISON_EPSILON * scale
+        })
 }
 
 fn invert_matrix(matrix: &Matrix4, label: &str) -> Result<Matrix4, String> {
@@ -505,10 +520,7 @@ fn inspect_skeleton_bytes(
     }
     let mut world_bind_matrices = Vec::with_capacity(anim.bones.len());
     for (index, matrix) in inverse_bind_matrices.iter().enumerate() {
-        let world = invert_matrix(
-            matrix,
-            &format!("Inverse-bind matrix {}", index),
-        )?;
+        let world = invert_matrix(matrix, &format!("Inverse-bind matrix {}", index))?;
         if !matrices_approximately_equal(
             &multiply_matrix(matrix, &world),
             &[
@@ -518,7 +530,10 @@ fn inspect_skeleton_bytes(
                 [0.0, 0.0, 0.0, 1.0],
             ],
         ) {
-            return Err(format!("Inverse-bind matrix {} failed inversion verification", index));
+            return Err(format!(
+                "Inverse-bind matrix {} failed inversion verification",
+                index
+            ));
         }
         world_bind_matrices.push(world);
     }
@@ -540,7 +555,10 @@ fn inspect_skeleton_bytes(
                 &multiply_matrix(&world_bind_matrices[parent], &local),
                 &world_bind_matrices[index],
             ) {
-                return Err(format!("Derived local bind matrix {} failed composition verification", index));
+                return Err(format!(
+                    "Derived local bind matrix {} failed composition verification",
+                    index
+                ));
             }
         }
         local_bind_matrices.push(local);
@@ -1158,6 +1176,18 @@ fn rmv2_material_metadata(mesh_block: &MeshBlock) -> serde_json::Value {
     let material = mesh_block.material();
     json!({
         "attachment_count": material.attachment_points().len(),
+        "attachments": material.attachment_points().iter().map(|attachment| {
+            let matrix = attachment.matrix();
+            json!({
+                "bone_id": attachment.bone_id(),
+                "matrix": [
+                    [matrix.m11, matrix.m12, matrix.m13, matrix.m14],
+                    [matrix.m21, matrix.m22, matrix.m23, matrix.m24],
+                    [matrix.m31, matrix.m32, matrix.m33, matrix.m34],
+                ],
+                "name": attachment.name(),
+            })
+        }).collect::<Vec<_>>(),
         "name": material.name(),
         "parameter_counts": {
             "float": material.params_f32().len(),
@@ -1240,10 +1270,374 @@ fn preserve_gltf_material_identity(
     })
 }
 
+fn json_matrix4(value: &serde_json::Value, label: &str) -> Result<Matrix4, String> {
+    let rows = value
+        .as_array()
+        .ok_or_else(|| format!("{} is not a matrix", label))?;
+    if rows.len() != 4 {
+        return Err(format!("{} does not have four rows", label));
+    }
+    let mut matrix = [[0.0; 4]; 4];
+    for (row_index, row) in rows.iter().enumerate() {
+        let columns = row
+            .as_array()
+            .ok_or_else(|| format!("{} row {} is not an array", label, row_index))?;
+        if columns.len() != 4 {
+            return Err(format!(
+                "{} row {} does not have four columns",
+                label, row_index
+            ));
+        }
+        for (column_index, entry) in columns.iter().enumerate() {
+            matrix[row_index][column_index] = entry.as_f64().ok_or_else(|| {
+                format!("{} [{},{}] is not numeric", label, row_index, column_index)
+            })?;
+        }
+    }
+    Ok(matrix)
+}
+
+fn gltf_column_major_matrix(matrix: &Matrix4) -> Vec<serde_json::Value> {
+    (0..4)
+        .flat_map(|column| (0..4).map(move |row| json!(matrix[row][column])))
+        .collect()
+}
+
+fn inverse_bind_binary(inspection: &serde_json::Value) -> Result<Vec<u8>, String> {
+    let bones = inspection["bones"]
+        .as_array()
+        .ok_or_else(|| "Skeleton inspection has no bones array".to_owned())?;
+    let mut bytes = Vec::with_capacity(bones.len() * 64);
+    for (index, bone) in bones.iter().enumerate() {
+        let matrix = json_matrix4(
+            &bone["inverse_bind_matrix"],
+            &format!("Bone {} inverse bind matrix", index),
+        )?;
+        for column in 0..4 {
+            for row in 0..4 {
+                let value = matrix[row][column] as f32;
+                if !value.is_finite() {
+                    return Err(format!(
+                        "Bone {} inverse bind matrix cannot be represented as finite f32",
+                        index
+                    ));
+                }
+                bytes.extend_from_slice(&value.to_le_bytes());
+            }
+        }
+    }
+    Ok(bytes)
+}
+
+fn replace_skin_attribute_data(
+    document: &mut serde_json::Value,
+    attributes: &[(Vec<u8>, Vec<u8>, usize)],
+) -> Result<(), String> {
+    let meshes = document["meshes"]
+        .as_array()
+        .ok_or_else(|| "Generated glTF has no meshes array".to_owned())?;
+    if meshes.len() != attributes.len() {
+        return Err(format!(
+            "Generated glTF has {} meshes but decoded LOD has {} skin attribute sets",
+            meshes.len(),
+            attributes.len()
+        ));
+    }
+    let accessor_pairs = meshes
+        .iter()
+        .enumerate()
+        .map(|(index, mesh)| {
+            let primitive = mesh["primitives"]
+                .as_array()
+                .and_then(|items| items.first())
+                .ok_or_else(|| format!("glTF mesh {} has no primitive", index))?;
+            let joints = primitive["attributes"]["JOINTS_0"]
+                .as_u64()
+                .ok_or_else(|| format!("glTF mesh {} has no JOINTS_0 accessor", index))?
+                as usize;
+            let weights = primitive["attributes"]["WEIGHTS_0"]
+                .as_u64()
+                .ok_or_else(|| format!("glTF mesh {} has no WEIGHTS_0 accessor", index))?
+                as usize;
+            Ok((joints, weights))
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+
+    for (mesh_index, ((joint_bytes, weight_bytes, count), (joint_accessor, weight_accessor))) in
+        attributes.iter().zip(accessor_pairs).enumerate()
+    {
+        if joint_bytes.len() != count * 4 || weight_bytes.len() != count * 16 {
+            return Err(format!(
+                "Skin attribute byte count is invalid for mesh {}",
+                mesh_index
+            ));
+        }
+        let buffer_index = document["buffers"].as_array().map_or(0, Vec::len);
+        document
+            .as_object_mut().unwrap()
+            .entry("buffers")
+            .or_insert_with(|| json!([]))
+            .as_array_mut().unwrap()
+            .push(json!({
+                "byteLength": joint_bytes.len() + weight_bytes.len(),
+                "uri": format!("data:application/octet-stream;base64,{}", BASE64_STANDARD.encode([joint_bytes.as_slice(), weight_bytes.as_slice()].concat())),
+            }));
+        let view_index = document["bufferViews"].as_array().map_or(0, Vec::len);
+        let views = document
+            .as_object_mut()
+            .unwrap()
+            .entry("bufferViews")
+            .or_insert_with(|| json!([]))
+            .as_array_mut()
+            .unwrap();
+        views.push(json!({"buffer": buffer_index, "byteLength": joint_bytes.len()}));
+        views.push(json!({"buffer": buffer_index, "byteOffset": joint_bytes.len(), "byteLength": weight_bytes.len()}));
+        let accessors = document["accessors"].as_array_mut().unwrap();
+        for (accessor_index, buffer_view, component_type) in [
+            (joint_accessor, view_index, 5121),
+            (weight_accessor, view_index + 1, 5126),
+        ] {
+            let accessor = accessors
+                .get_mut(accessor_index)
+                .and_then(serde_json::Value::as_object_mut)
+                .ok_or_else(|| format!("Skin accessor {} is invalid", accessor_index))?;
+            accessor.insert("bufferView".to_owned(), json!(buffer_view));
+            accessor.insert("byteOffset".to_owned(), json!(0));
+            accessor.insert("componentType".to_owned(), json!(component_type));
+            accessor.insert("count".to_owned(), json!(count));
+            accessor.insert("type".to_owned(), json!("VEC4"));
+        }
+    }
+    Ok(())
+}
+
+fn decoded_skin_attribute_data(
+    lod: &rpfm_lib::files::rigidmodel::Lod,
+) -> Vec<(Vec<u8>, Vec<u8>, usize)> {
+    lod.mesh_blocks()
+        .iter()
+        .map(|block| {
+            let vertices = block.mesh().vertices();
+            let mut joints = Vec::with_capacity(vertices.len() * 4);
+            let mut weights = Vec::with_capacity(vertices.len() * 16);
+            for vertex in vertices {
+                let indices = vertex.bone_indices();
+                joints.extend_from_slice(&[indices.x, indices.y, indices.z, indices.w]);
+                let vertex_weights = vertex.weights();
+                for value in [
+                    vertex_weights.x,
+                    vertex_weights.y,
+                    vertex_weights.z,
+                    vertex_weights.w,
+                ] {
+                    weights.extend_from_slice(&value.to_le_bytes());
+                }
+            }
+            (joints, weights, vertices.len())
+        })
+        .collect()
+}
+
+fn augment_gltf_with_skin_document(
+    document: &mut serde_json::Value,
+    inspection: &serde_json::Value,
+) -> Result<(), String> {
+    let bones = inspection["bones"]
+        .as_array()
+        .ok_or_else(|| "Skeleton inspection has no bones array".to_owned())?;
+    let roots = inspection["roots"]
+        .as_array()
+        .ok_or_else(|| "Skeleton inspection has no roots array".to_owned())?;
+    if bones.is_empty() {
+        return Err("Cannot create a glTF skin for an empty skeleton".to_owned());
+    }
+
+    let nodes = document
+        .get_mut("nodes")
+        .and_then(serde_json::Value::as_array_mut)
+        .ok_or_else(|| "Generated glTF has no nodes array".to_owned())?;
+    let original_node_count = nodes.len();
+    let wrapper_node = original_node_count;
+    let first_joint_node = wrapper_node + 1;
+    let root_children = roots
+        .iter()
+        .map(|root| {
+            root.as_u64()
+                .map(|index| first_joint_node + index as usize)
+                .ok_or_else(|| "Skeleton root is not an index".to_owned())
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    nodes.push(json!({
+        "name": format!("{}_skeleton", inspection["skeleton_id"].as_str().unwrap_or("skeleton")),
+        "children": root_children,
+    }));
+    for (index, bone) in bones.iter().enumerate() {
+        if bone["index"].as_u64() != Some(index as u64) {
+            return Err(format!(
+                "Skeleton bone ordering is unstable at index {}",
+                index
+            ));
+        }
+        let local = json_matrix4(
+            &bone["local_bind_matrix"],
+            &format!("Bone {} local bind matrix", index),
+        )?;
+        let children = bones
+            .iter()
+            .enumerate()
+            .filter_map(|(child_index, child)| {
+                (child["parent"].as_u64() == Some(index as u64))
+                    .then_some(first_joint_node + child_index)
+            })
+            .collect::<Vec<_>>();
+        let mut node = serde_json::Map::new();
+        node.insert(
+            "name".to_owned(),
+            json!(bone["name"]
+                .as_str()
+                .ok_or_else(|| format!("Bone {} has no name", index))?),
+        );
+        node.insert(
+            "matrix".to_owned(),
+            serde_json::Value::Array(gltf_column_major_matrix(&local)),
+        );
+        if !children.is_empty() {
+            node.insert("children".to_owned(), json!(children));
+        }
+        nodes.push(serde_json::Value::Object(node));
+    }
+
+    let bytes = inverse_bind_binary(inspection)?;
+    let buffers = document
+        .as_object_mut()
+        .ok_or_else(|| "Generated glTF root is not an object".to_owned())?
+        .entry("buffers")
+        .or_insert_with(|| json!([]))
+        .as_array_mut()
+        .ok_or_else(|| "Generated glTF buffers is not an array".to_owned())?;
+    let buffer_index = buffers.len();
+    buffers.push(json!({
+        "byteLength": bytes.len(),
+        "uri": format!("data:application/octet-stream;base64,{}", BASE64_STANDARD.encode(&bytes)),
+    }));
+    let buffer_views = document
+        .as_object_mut()
+        .unwrap()
+        .entry("bufferViews")
+        .or_insert_with(|| json!([]))
+        .as_array_mut()
+        .ok_or_else(|| "Generated glTF bufferViews is not an array".to_owned())?;
+    let buffer_view_index = buffer_views.len();
+    buffer_views.push(json!({"buffer": buffer_index, "byteLength": bytes.len()}));
+    let accessors = document
+        .as_object_mut()
+        .unwrap()
+        .entry("accessors")
+        .or_insert_with(|| json!([]))
+        .as_array_mut()
+        .ok_or_else(|| "Generated glTF accessors is not an array".to_owned())?;
+    let accessor_index = accessors.len();
+    accessors.push(json!({
+        "bufferView": buffer_view_index,
+        "byteOffset": 0,
+        "componentType": 5126,
+        "count": bones.len(),
+        "type": "MAT4",
+    }));
+    let skins = document
+        .as_object_mut()
+        .unwrap()
+        .entry("skins")
+        .or_insert_with(|| json!([]))
+        .as_array_mut()
+        .ok_or_else(|| "Generated glTF skins is not an array".to_owned())?;
+    let skin_index = skins.len();
+    skins.push(json!({
+        "name": inspection["skeleton_id"],
+        "inverseBindMatrices": accessor_index,
+        "joints": (0..bones.len()).map(|index| first_joint_node + index).collect::<Vec<_>>(),
+        "skeleton": wrapper_node,
+    }));
+
+    let nodes = document["nodes"].as_array_mut().unwrap();
+    for node in nodes.iter_mut().take(original_node_count) {
+        if node.get("mesh").is_some() {
+            node.as_object_mut()
+                .ok_or_else(|| "Generated glTF mesh node is not an object".to_owned())?
+                .insert("skin".to_owned(), json!(skin_index));
+        }
+    }
+    let scenes = document["scenes"]
+        .as_array_mut()
+        .ok_or_else(|| "Generated glTF has no scenes array".to_owned())?;
+    for scene in scenes {
+        scene
+            .as_object_mut()
+            .ok_or_else(|| "Generated glTF scene is not an object".to_owned())?
+            .entry("nodes")
+            .or_insert_with(|| json!([]))
+            .as_array_mut()
+            .ok_or_else(|| "Generated glTF scene nodes is not an array".to_owned())?
+            .push(json!(wrapper_node));
+    }
+    Ok(())
+}
+
+fn add_gltf_skin(
+    output: &Path,
+    inspection: &serde_json::Value,
+    attributes: &[(Vec<u8>, Vec<u8>, usize)],
+) -> Result<(), String> {
+    let mut document: serde_json::Value = serde_json::from_slice(
+        &fs::read(output)
+            .map_err(|error| format!("Unable to read glTF '{}': {}", output.display(), error))?,
+    )
+    .map_err(|error| {
+        format!(
+            "Unable to decode glTF JSON '{}': {}",
+            output.display(),
+            error
+        )
+    })?;
+    replace_skin_attribute_data(&mut document, attributes)?;
+    augment_gltf_with_skin_document(&mut document, inspection)?;
+    fs::write(
+        output,
+        serde_json::to_vec_pretty(&document).expect("skinned glTF JSON must serialize"),
+    )
+    .map_err(|error| {
+        format!(
+            "Unable to write skinned glTF '{}': {}",
+            output.display(),
+            error
+        )
+    })
+}
+
+fn validate_skin_skeleton_id(
+    rmv2_skeleton_id: &str,
+    inspection: &serde_json::Value,
+) -> Result<(), String> {
+    if rmv2_skeleton_id.is_empty() {
+        return Err("Cannot create a skin because the RMV2 skeleton ID is empty".to_owned());
+    }
+    let resource_id = inspection["skeleton_id"]
+        .as_str()
+        .ok_or_else(|| "Skeleton inspection has no identifier".to_owned())?;
+    if resource_id != rmv2_skeleton_id {
+        return Err(format!(
+            "Skeleton ID mismatch: RMV2 references '{}', skeleton resource identifies '{}'",
+            rmv2_skeleton_id, resource_id
+        ));
+    }
+    Ok(())
+}
+
 fn export_rmv2_gltf(
     input: &Path,
     output: &Path,
     selection: LodSelection,
+    skeleton_resources: Option<(&Path, &Path)>,
 ) -> Result<serde_json::Value, String> {
     output_gltf_path(output)?;
     let bytes = fs::read(input)
@@ -1251,6 +1645,13 @@ fn export_rmv2_gltf(
     let mut reader = Cursor::new(bytes);
     let model = RigidModel::decode(&mut reader, &None)
         .map_err(|error| format!("Unable to decode RMV2 '{}': {}", input.display(), error))?;
+    let skeleton_inspection = if let Some((anim, inverse_bind)) = skeleton_resources {
+        let inspection = inspect_skeleton(anim, inverse_bind)?;
+        validate_skin_skeleton_id(model.skeleton_id(), &inspection)?;
+        Some(inspection)
+    } else {
+        None
+    };
     let lod_index = selected_lod_index(selection, model.lods().len())?;
     let selected_lod = model.lods()[lod_index].clone();
     let mesh_count = selected_lod.mesh_blocks().len();
@@ -1305,6 +1706,13 @@ fn export_rmv2_gltf(
         ));
     }
     preserve_gltf_material_identity(output, &source_materials)?;
+    if let Some(inspection) = &skeleton_inspection {
+        add_gltf_skin(
+            output,
+            inspection,
+            &decoded_skin_attribute_data(&selected_lod),
+        )?;
+    }
 
     Ok(gltf_export_result(
         input
@@ -1331,7 +1739,18 @@ fn run(command: Command) -> Result<serde_json::Value, String> {
             validate_decode,
         } => inspect_rmv2(&input, validate_decode),
         Command::InspectSkeleton { anim, inverse_bind } => inspect_skeleton(&anim, &inverse_bind),
-        Command::ExportRmv2Gltf { input, output, lod } => export_rmv2_gltf(&input, &output, lod),
+        Command::ExportRmv2Gltf {
+            input,
+            output,
+            lod,
+            skeleton_anim,
+            inverse_bind,
+        } => export_rmv2_gltf(
+            &input,
+            &output,
+            lod,
+            skeleton_anim.as_deref().zip(inverse_bind.as_deref()),
+        ),
         Command::CreateTestPack { spec, output } => {
             let document: serde_json::Value =
                 serde_json::from_slice(&fs::read(&spec).map_err(|e| e.to_string())?)
@@ -1830,6 +2249,249 @@ mod tests {
         );
     }
 
+    fn synthetic_skin_inspection() -> serde_json::Value {
+        let mut parents = vec![-1; 6];
+        parents.extend((6..50).map(|_| 0));
+        inspect_skeleton_bytes(
+            &synthetic_anim(5, &parents),
+            &synthetic_inverse_bind(1, &identity_inverse_binds(50)),
+        )
+        .unwrap()
+    }
+
+    fn synthetic_gltf_document() -> serde_json::Value {
+        json!({
+            "asset": {"version": "2.0"}, "scenes": [{"nodes": [0]}],
+            "nodes": [{"mesh": 0}],
+            "meshes": [{"primitives": [{"attributes": {"POSITION": 0, "NORMAL": 1,
+                "TEXCOORD_0": 2, "JOINTS_0": 3, "WEIGHTS_0": 4}, "indices": 5, "material": 0}]}],
+            "accessors": [
+                {"bufferView": 0, "componentType": 5126, "count": 3, "type": "VEC3"},
+                {"bufferView": 0, "componentType": 5126, "count": 3, "type": "VEC3"},
+                {"bufferView": 0, "componentType": 5126, "count": 3, "type": "VEC2"},
+                {"bufferView": 0, "componentType": 5121, "count": 3, "type": "VEC4"},
+                {"bufferView": 0, "componentType": 5126, "count": 3, "type": "VEC4"},
+                {"bufferView": 1, "componentType": 5123, "count": 3, "type": "SCALAR"}],
+            "buffers": [{"byteLength": 128, "uri": "data:application/octet-stream;base64,AA=="}],
+            "bufferViews": [{"buffer": 0, "byteLength": 122},
+                {"buffer": 0, "byteOffset": 122, "byteLength": 6}],
+            "materials": [{"name": "fixture"}]
+        })
+    }
+
+    fn augmented_skin_document() -> serde_json::Value {
+        let mut document = synthetic_gltf_document();
+        augment_gltf_with_skin_document(&mut document, &synthetic_skin_inspection()).unwrap();
+        document
+    }
+
+    #[test]
+    fn skin_preserves_fifty_joint_ordering() {
+        let document = augmented_skin_document();
+        let joints = document["skins"][0]["joints"].as_array().unwrap();
+        assert_eq!(joints.len(), 50);
+        assert_eq!(
+            (joints[0].clone(), joints[49].clone()),
+            (json!(2), json!(51))
+        );
+        assert_eq!(
+            (
+                document["nodes"][2]["name"].clone(),
+                document["nodes"][51]["name"].clone()
+            ),
+            (json!("bone_00"), json!("bone_49"))
+        );
+    }
+
+    #[test]
+    fn skin_generates_multiple_root_wrapper() {
+        let document = augmented_skin_document();
+        assert_eq!(document["nodes"][1]["children"], json!([2, 3, 4, 5, 6, 7]));
+        assert_eq!(document["skins"][0]["skeleton"], 1);
+        assert_eq!(document["scenes"][0]["nodes"], json!([0, 1]));
+    }
+
+    #[test]
+    fn skin_generates_parent_child_relationships() {
+        let document = augmented_skin_document();
+        let children = document["nodes"][2]["children"].as_array().unwrap();
+        assert_eq!(children.len(), 44);
+        assert!(children.contains(&json!(8)) && children.contains(&json!(51)));
+    }
+
+    #[test]
+    fn skin_converts_local_matrix_to_gltf_column_major() {
+        let matrix = [
+            [1.0, 2.0, 3.0, 4.0],
+            [5.0, 6.0, 7.0, 8.0],
+            [9.0, 10.0, 11.0, 12.0],
+            [13.0, 14.0, 15.0, 16.0],
+        ];
+        assert_eq!(
+            serde_json::Value::Array(gltf_column_major_matrix(&matrix)),
+            json!([
+                1.0, 5.0, 9.0, 13.0, 2.0, 6.0, 10.0, 14.0, 3.0, 7.0, 11.0, 15.0, 4.0, 8.0, 12.0,
+                16.0
+            ])
+        );
+    }
+
+    #[test]
+    fn skin_generates_inverse_bind_accessor() {
+        let document = augmented_skin_document();
+        let accessor = document["accessors"].as_array().unwrap().last().unwrap();
+        assert_eq!(
+            (
+                accessor["componentType"].clone(),
+                accessor["count"].clone(),
+                accessor["type"].clone()
+            ),
+            (json!(5126), json!(50), json!("MAT4"))
+        );
+        assert_eq!(
+            document["buffers"].as_array().unwrap().last().unwrap()["byteLength"],
+            3200
+        );
+    }
+
+    #[test]
+    fn skin_generates_skin_entry_and_mesh_assignment() {
+        let document = augmented_skin_document();
+        assert_eq!(document["skins"].as_array().unwrap().len(), 1);
+        assert_eq!(document["nodes"][0]["skin"], 0);
+        assert_eq!(document["skins"][0]["name"], "synthetic_skeleton");
+    }
+
+    #[test]
+    fn skin_preserves_joint_and_weight_attributes() {
+        let before = synthetic_gltf_document();
+        let after = augmented_skin_document();
+        for semantic in ["JOINTS_0", "WEIGHTS_0"] {
+            assert_eq!(
+                after["meshes"][0]["primitives"][0]["attributes"][semantic],
+                before["meshes"][0]["primitives"][0]["attributes"][semantic]
+            );
+        }
+    }
+
+    #[test]
+    fn skin_attribute_replacement_preserves_decoded_values_and_semantics() {
+        let mut document = synthetic_gltf_document();
+        let joints = vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
+        let logical_weights = [
+            1.0f32, 0.0, 0.0, 0.0, 0.75, 0.25, 0.0, 0.0, 0.5, 0.3, 0.2, 0.0,
+        ];
+        let weights = logical_weights
+            .iter()
+            .flat_map(|value| value.to_le_bytes())
+            .collect::<Vec<_>>();
+        replace_skin_attribute_data(&mut document, &[(joints.clone(), weights.clone(), 3)])
+            .unwrap();
+        assert_eq!(
+            document["meshes"][0]["primitives"][0]["attributes"],
+            synthetic_gltf_document()["meshes"][0]["primitives"][0]["attributes"]
+        );
+        let uri = document["buffers"].as_array().unwrap().last().unwrap()["uri"]
+            .as_str()
+            .unwrap();
+        let decoded = BASE64_STANDARD
+            .decode(uri.split_once(',').unwrap().1)
+            .unwrap();
+        assert_eq!(&decoded[..joints.len()], joints);
+        assert_eq!(&decoded[joints.len()..], weights);
+    }
+
+    #[test]
+    fn skin_preserves_geometry_accessors_and_buffers() {
+        let before = synthetic_gltf_document();
+        let after = augmented_skin_document();
+        assert_eq!(
+            &after["accessors"].as_array().unwrap()[..6],
+            before["accessors"].as_array().unwrap()
+        );
+        assert_eq!(
+            &after["buffers"].as_array().unwrap()[..1],
+            before["buffers"].as_array().unwrap()
+        );
+        assert_eq!(
+            &after["bufferViews"].as_array().unwrap()[..2],
+            before["bufferViews"].as_array().unwrap()
+        );
+        assert_eq!(after["meshes"], before["meshes"]);
+    }
+
+    #[test]
+    fn skin_augmentation_json_is_deterministic() {
+        assert_eq!(
+            serde_json::to_string(&augmented_skin_document()).unwrap(),
+            serde_json::to_string(&augmented_skin_document()).unwrap()
+        );
+    }
+
+    #[test]
+    fn static_export_command_remains_backward_compatible() {
+        let command = parse_command(&[
+            "export-rmv2-gltf".to_owned(),
+            "--input".to_owned(),
+            "model.rigid_model_v2".to_owned(),
+            "--output".to_owned(),
+            "model.gltf".to_owned(),
+            "--lod".to_owned(),
+            "highest".to_owned(),
+        ])
+        .unwrap();
+        assert!(matches!(
+            command,
+            Command::ExportRmv2Gltf {
+                skeleton_anim: None,
+                inverse_bind: None,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn skin_rejects_skeleton_id_mismatch() {
+        let error =
+            validate_skin_skeleton_id("different_rig", &synthetic_skin_inspection()).unwrap_err();
+        assert!(error.contains("Skeleton ID mismatch"));
+    }
+
+    #[test]
+    fn skin_rejects_empty_rigid_model_skeleton_id() {
+        assert!(validate_skin_skeleton_id("", &synthetic_skin_inspection())
+            .unwrap_err()
+            .contains("RMV2 skeleton ID is empty"));
+    }
+
+    #[test]
+    fn skinned_export_requires_both_skeleton_resources() {
+        let error = parse_command(&[
+            "export-rmv2-gltf".to_owned(),
+            "--input".to_owned(),
+            "model.rigid_model_v2".to_owned(),
+            "--output".to_owned(),
+            "model.gltf".to_owned(),
+            "--lod".to_owned(),
+            "highest".to_owned(),
+            "--skeleton-anim".to_owned(),
+            "missing.anim".to_owned(),
+        ])
+        .unwrap_err();
+        assert!(error.contains("requires both"));
+    }
+
+    #[test]
+    fn skeleton_inspection_rejects_missing_resource() {
+        let temp = tempdir().unwrap();
+        let error = inspect_skeleton(
+            &temp.path().join("missing.anim"),
+            &temp.path().join("missing.bone_inv_trans_mats"),
+        )
+        .unwrap_err();
+        assert!(error.contains("Unable to read skeleton .anim"));
+    }
+
     fn write_u16(bytes: &mut [u8], offset: usize, value: u16) {
         bytes[offset..offset + 2].copy_from_slice(&value.to_le_bytes());
     }
@@ -2057,6 +2719,7 @@ mod tests {
             &temp.path().join("missing.rigid_model_v2"),
             &temp.path().join("nested/output.gltf"),
             LodSelection::Highest,
+            None,
         )
         .unwrap_err();
         assert!(error.contains("Unable to read RMV2"));

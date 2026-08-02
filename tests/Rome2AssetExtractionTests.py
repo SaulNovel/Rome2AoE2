@@ -12,8 +12,8 @@ class Rome2AssetExtractionTests(unittest.TestCase):
  def pack(self,name,files):
   spec=self.root/(name+'.json'); out=self.root/(name+'.pack'); spec.write_text(json.dumps({'format':'rome2aoe2.test-pack-spec','version':1,'files':[{'path':p,'content_utf8':c} for p,c in files.items()]}))
   subprocess.run([HELPER,'create-test-pack','--spec',spec,'--output',out],check=True,capture_output=True,text=True); return out
- def extract_manifest(self,deps,packs):
-  source=self.root/'dependency.json'; output=self.root/'nested'/'manifest.json'; source.write_text(json.dumps({'format_version':2,'dependencies':deps}))
+ def extract_manifest(self,deps,packs,version=2):
+  source=self.root/'dependency.json'; output=self.root/'nested'/'manifest.json'; source.write_text(json.dumps({'format_version':version,'dependencies':deps}))
   cmd=[sys.executable,'-B',ROOT/'src/rome2/extract_dependency_manifest.py','--manifest',source,'--helper',HELPER,'--output-root',self.root/'out','--extraction-manifest',output]
   for pack in packs: cmd.extend(['--pack',pack])
   result=subprocess.run(cmd,capture_output=True,text=True); return result,json.loads(output.read_text()) if output.exists() else None
@@ -28,6 +28,10 @@ class Rome2AssetExtractionTests(unittest.TestCase):
   pack=self.pack('one',{'Models/A.rigid_model_v2':'A'}); result,m=self.extract_manifest([self.dep('Models/A.rigid_model_v2'),self.dep('Models/Missing.rigid_model_v2')],[pack]); self.assertEqual(result.returncode,1); self.assertEqual(m['status'],'failed'); self.assertEqual(m['missing'][0]['failure_kind'],'not-found')
  def test_skipped_and_origins_preserved(self):
   origins=[{'attribute':'model','definition':'root','slot_path':'a','reference_chain':['root']}]; pack=self.pack('one',{'Models/A.rigid_model_v2':'A'}); result,m=self.extract_manifest([self.dep('Models/A.rigid_model_v2',origins=origins),self.dep('odd.file',['unknown'])],[pack]); self.assertEqual(result.returncode,0); self.assertEqual(m['status'],'success-with-skips'); self.assertEqual(m['assets'][0]['origins'],origins); self.assertEqual(len(m['skipped']),1)
+ def test_version_2_manifest_keeps_missing_attach_point_unavailable(self):
+  origins=[{'attribute':'model','definition':'root','slot_path':'weapon_2','reference_chain':['root']}]; pack=self.pack('one',{'Models/A.rigid_model_v2':'A'}); result,m=self.extract_manifest([self.dep('Models/A.rigid_model_v2',origins=origins)],[pack],version=2); self.assertEqual(result.returncode,0); self.assertEqual(m['source_dependency_manifest_version'],2); self.assertNotIn('attach_point',m['assets'][0]['origins'][0])
+ def test_version_3_manifest_preserves_attach_point(self):
+  origins=[{'attribute':'model','attach_point':'weapon_02','definition':'root','slot_path':'weapon_2','reference_chain':['root']}]; pack=self.pack('one',{'Models/A.rigid_model_v2':'A'}); result,m=self.extract_manifest([self.dep('Models/A.rigid_model_v2',origins=origins)],[pack],version=3); self.assertEqual(result.returncode,0); self.assertEqual(m['source_dependency_manifest_version'],3); self.assertEqual(m['assets'][0]['origins'][0]['attach_point'],'weapon_02')
  def test_malformed_manifest_and_duplicate_packs_rejected(self):
   pack=self.pack('one',{'Models/A.rigid_model_v2':'A'}); result,_=self.extract_manifest([{'path':'bad'}],[pack]); self.assertEqual(result.returncode,2); result,_=self.extract_manifest([self.dep('Models/A.rigid_model_v2')],[pack,pack]); self.assertEqual(result.returncode,2)
 if __name__=='__main__': unittest.main()

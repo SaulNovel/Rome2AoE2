@@ -30,11 +30,15 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
         manifest = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
         raise InputError("Invalid dependency manifest '{}': {}".format(path, error)) from error
-    if not isinstance(manifest, dict) or manifest.get("format_version") != 2 or not isinstance(manifest.get("dependencies"), list):
-        raise InputError("Dependency manifest '{}' must be resolver format_version 2 with a dependencies list".format(path))
+    if not isinstance(manifest, dict) or manifest.get("format_version") not in {2, 3} or not isinstance(manifest.get("dependencies"), list):
+        raise InputError("Dependency manifest '{}' must be resolver format_version 2 or 3 with a dependencies list".format(path))
     for index, dependency in enumerate(manifest["dependencies"]):
         if not isinstance(dependency, dict) or not all(isinstance(dependency.get(key), str) for key in ("path", "normalized_path")) or not isinstance(dependency.get("asset_types"), list) or not all(isinstance(kind, str) for kind in dependency["asset_types"]) or not isinstance(dependency.get("origins"), list):
             raise InputError("Dependency manifest entry {} has invalid path, normalized_path, asset_types, or origins".format(index))
+        if manifest["format_version"] == 3:
+            for origin_index, origin in enumerate(dependency["origins"]):
+                if not isinstance(origin, dict) or "attach_point" not in origin or origin["attach_point"] is not None and not isinstance(origin["attach_point"], str):
+                    raise InputError("Dependency manifest entry {} origin {} has invalid version-3 attach_point".format(index, origin_index))
     return manifest
 
 
@@ -74,7 +78,7 @@ def extract(manifest_path: Path, packs: list[Path], helper: Path, output_root: P
             failed.append({**common, "failure_kind": "extraction-failed", "pack": pack.name, "matched_path": matched, "error": str(error)}); continue
         assets.append({**common, "pack": pack.name, "matched_path": matched, "output_path": result["output_path"], "bytes_written": result["bytes_written"], "shadowed_packs": [candidate.name for candidate, _ in matches[1:]]})
     status = "failed" if missing or failed else "success-with-skips" if skipped else "success"
-    return {"format": "rome2aoe2.asset-extraction", "version": 1, "status": status, "source_dependency_manifest": manifest_path.name, "pack_precedence": [pack.name for pack in packs], "assets": assets, "missing": missing, "failed": failed, "skipped": skipped}
+    return {"format": "rome2aoe2.asset-extraction", "version": 1, "status": status, "source_dependency_manifest": manifest_path.name, "source_dependency_manifest_version": source["format_version"], "pack_precedence": [pack.name for pack in packs], "assets": assets, "missing": missing, "failed": failed, "skipped": skipped}
 
 
 def main(arguments: list[str]) -> int:

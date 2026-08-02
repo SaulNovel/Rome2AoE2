@@ -6,6 +6,7 @@ rust-version = "1.85"
 publish = false
 
 [dependencies]
+base64 = "0.22"
 rpfm_lib = { path = "../../third_party/rpfm/rpfm_lib" }
 rpfm_extensions = { path = "../../third_party/rpfm/rpfm_extensions" }
 serde_json = "1"

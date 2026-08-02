@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<VARIANT_MESH>
+  <SLOT name="model">
+    <VARIANT_MESH model="models/nested.rigid_model_v2" />
+  </SLOT>
+</VARIANT_MESH>

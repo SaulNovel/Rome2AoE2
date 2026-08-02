@@ -249,3 +249,98 @@ was performed.
 The next milestone may use this inspection output to construct a static glTF
 skin and Blender armature, then validate crest placement. Animation decoding
 and shield/weapon slot mapping remain unresolved and are not part of this work.
+
+## glTF skin and Blender armature proof
+
+`export-rmv2-gltf` optionally accepts the two verified skeleton resources:
+
+```powershell
+rome2aoe2-pack export-rmv2-gltf `
+  --input model.rigid_model_v2 --output model.gltf --lod highest `
+  --skeleton-anim rome_man_game.anim `
+  --inverse-bind rome_man_game.bone_inv_trans_mats
+```
+
+Both options are required together. The skeleton identifier must equal the
+RMV2 header identifier, and a rigid model with an empty identifier cannot be
+exported with a skin. Omitting both options retains the previous static export.
+
+### Skin architecture and joint attributes
+
+The project-owned post-processing layer appends a named node for every bone in
+serialized skeleton-array order. Each node receives its local bind matrix and
+children from the decoded hierarchy. `skin.joints` uses exactly that same order,
+so RMV2 bone index N remains glTF joint N; no semantic remapping occurs.
+
+The upstream exporter's JOINTS/WEIGHTS accessor offsets assumed Rust source
+field order, but the compiled `Vertex` layout places those fields elsewhere.
+Once a real skin caused Blender to consume them, values such as joint 224 made
+the defect visible. For skinned exports only, the wrapper now serializes the
+already-decoded `Vertex::bone_indices` and `Vertex::weights` into tightly packed
+buffers and repoints the existing JOINTS_0 and WEIGHTS_0 accessors. Semantic
+accessor indices and decoded values are preserved. Position, index, normal,
+tangent, UV, material, and original geometry buffers/accessors are unchanged.
+
+The source has six roots. A non-joint node named `rome_man_game_skeleton` owns
+the six genuine root nodes and is used for `skin.skeleton`. It does not add a
+bone and does not invent parentage between `bn_hips` and the five weapon roots.
+The resulting skin has 50 joints and a 50-entry inverse-bind `MAT4` accessor.
+
+Matrices in JSON node properties and binary inverse-bind accessors are flattened
+in glTF column-major order from the normalized 4x4 column-vector matrices. The
+conversion is covered with a non-symmetric synthetic matrix so row/column
+transposition errors cannot pass unnoticed. The hierarchy continues to satisfy
+`world = parent_world * local` before serialization.
+
+### Weighted-skin Blender validation
+
+The highest LOD of `3c_roman_headhands_skin1_shape1.rigid_model_v2` imports in
+Blender 5.2 without glTF skin or matrix warnings. Blender creates:
+
+- one armature with 50 bones;
+- six root bones with the expected names;
+- three source mesh objects with armature modifiers;
+- 50 distinct vertex groups, all named after skeleton bones;
+- no missing or unknown vertex-group names.
+
+Blender also creates an unparented `Icosphere` helper for armature display; it
+is not a source RMV2 mesh and is excluded from the source mesh count.
+
+At rest, evaluated versus source mesh positions differ by at most
+`6.11e-7`, consistent with floating-point conversion rather than deformation.
+A five-degree test rotation of `bn_hips` moves weighted vertices by up to
+`0.0660`, proving the groups and armature modifier are usable; the pose is reset
+before saving the ignored proof file. After Blender's standard glTF-to-Blender
+axis mapping `(X,Y,Z) -> (X,-Z,Y)`, imported rest matrices reproduce the glTF
+world bind matrices with maximum component error `6.78e-5`. No exporter-side
+axis correction was needed.
+
+### Crest attachment proof
+
+The helmet was exported with the same skin, while the rigid crest retained a
+static export. The crest object transform was calculated exclusively as:
+
+```text
+world_bind[23] * crest_centre_local
+```
+
+The Rome/glTF-space translation is approximately
+`[-0.000068934, 1.811605096, -0.022783680]`. After Blender's coordinate-system
+conversion, the translation is
+`[-0.000068934, 0.022783680, 1.811605096]`.
+
+Blender-space bounds are:
+
+- helmet: `[-0.145996,-0.158081,1.490234]` to
+  `[0.145996,0.151611,1.814453]`;
+- transformed crest: `[-0.041757,-0.138887,1.608421]` to
+  `[0.041619,0.184454,2.014789]`.
+
+The anchor is only `0.002848` below the helmet's maximum Z, the X/Y footprints
+overlap, and the crest extends upward from the helmet crown. It therefore aligns
+without any manual translation, rotation, scale, or visual correction.
+
+Animations, weapon-slot mapping, shield/gladius/pilum placement, textures,
+decals, and final unit assembly remain outside this milestone. The next logical
+step is static multi-part skin reuse and attachment-slot evidence gathering,
+before any animation decoding is attempted.

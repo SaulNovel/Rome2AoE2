@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<VARIANT_MESH>
+  <SLOT name="direct" attach_point="weapon_02">
+    <VARIANT_MESH model="models/direct.rigid_model_v2" />
+  </SLOT>
+  <SLOT name="equipment" attach_point="weapon_03">
+    <VARIANT_MESH>
+      <SLOT name="inherited" attach_point="">
+        <VARIANT_MESH model="models/inherited.rigid_model_v2" />
+      </SLOT>
+      <SLOT name="overridden" attach_point="weapon_05">
+        <VARIANT_MESH model="models/overridden.rigid_model_v2" />
+      </SLOT>
+    </VARIANT_MESH>
+  </SLOT>
+  <SLOT name="missing">
+    <VARIANT_MESH model="models/missing.rigid_model_v2" />
+  </SLOT>
+  <SLOT name="nested" attach_point="weapon_03">
+    <VARIANT_MESH_REFERENCE definition="attach_points/child.variantmeshdefinition" />
+  </SLOT>
+  <SLOT name="shield" attach_point="weapon_03">
+    <VARIANT_MESH>
+      <SLOT name="shields">
+        <VARIANT_MESH model="shield/roman_augustan_scutuma.rigid_model_v2" />
+      </SLOT>
+    </VARIANT_MESH>
+  </SLOT>
+  <SLOT name="weapon_2" attach_point="weapon_02">
+    <VARIANT_MESH model="weapons/roman_gladius.rigid_model_v2" />
+  </SLOT>
+  <SLOT name="weapon_4" attach_point="weapon_05">
+    <VARIANT_MESH model="weapons/roman_pilum_heavy.rigid_model_v2" />
+  </SLOT>
+</VARIANT_MESH>

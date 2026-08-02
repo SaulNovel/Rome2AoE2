@@ -154,6 +154,7 @@ def resolve(definition_path: Path, definition_root: Optional[Path] = None) -> Di
         definition: str,
         slot_path: List[str],
         reference_chain: List[str],
+        attach_point: Optional[str],
     ) -> None:
         comparison_key = normalized_pack_path(original_path)
         dependency = dependencies.setdefault(
@@ -169,13 +170,20 @@ def resolve(definition_path: Path, definition_root: Optional[Path] = None) -> Di
         dependency["origins"].append(
             {
                 "attribute": attribute,
+                "attach_point": attach_point,
                 "definition": definition,
                 "reference_chain": list(reference_chain),
                 "slot_path": "/".join(slot_path),
             }
         )
 
-    def visit_definition(path: Path, slot_path: List[str], reference_chain: List[str], active_chain: List[str]) -> None:
+    def visit_definition(
+        path: Path,
+        slot_path: List[str],
+        reference_chain: List[str],
+        active_chain: List[str],
+        attach_point: Optional[str],
+    ) -> None:
         display_path = definition_display(path)
         comparison_key = add_definition(path)
         if comparison_key in active_chain:
@@ -190,6 +198,7 @@ def resolve(definition_path: Path, definition_root: Optional[Path] = None) -> Di
             slot_path,
             reference_chain,
             active_chain + [comparison_key],
+            attach_point,
         )
 
     def visit_variant(
@@ -198,12 +207,27 @@ def resolve(definition_path: Path, definition_root: Optional[Path] = None) -> Di
         slot_path: List[str],
         reference_chain: List[str],
         active_chain: List[str],
+        attach_point: Optional[str],
     ) -> None:
         if variant.get("model"):
-            add_dependency(variant.attrib["model"], "model", definition, slot_path, reference_chain)
+            add_dependency(
+                variant.attrib["model"],
+                "model",
+                definition,
+                slot_path,
+                reference_chain,
+                attach_point,
+            )
         for attribute, value in variant.attrib.items():
             if attribute.startswith(TEXTURE_ATTRIBUTE_PREFIX) and value:
-                add_dependency(value, attribute, definition, slot_path, reference_chain)
+                add_dependency(
+                    value,
+                    attribute,
+                    definition,
+                    slot_path,
+                    reference_chain,
+                    attach_point,
+                )
 
         for child in variant:
             if _tag_name(child) != "SLOT":
@@ -212,8 +236,21 @@ def resolve(definition_path: Path, definition_root: Optional[Path] = None) -> Di
             if selected is None:
                 continue
             selected_slot_path = slot_path + [child.get("name", "<unnamed>")]
+            declared_attach_point = child.get("attach_point")
+            selected_attach_point = (
+                declared_attach_point.strip()
+                if declared_attach_point and declared_attach_point.strip()
+                else attach_point
+            )
             if _tag_name(selected) == "VARIANT_MESH":
-                visit_variant(selected, definition, selected_slot_path, reference_chain, active_chain)
+                visit_variant(
+                    selected,
+                    definition,
+                    selected_slot_path,
+                    reference_chain,
+                    active_chain,
+                    selected_attach_point,
+                )
                 continue
 
             reference_path = selected.get("definition")
@@ -231,9 +268,15 @@ def resolve(definition_path: Path, definition_root: Optional[Path] = None) -> Di
                     "/".join(selected_slot_path),
                     reference_chain + [reference_path],
                 )
-            visit_definition(target, selected_slot_path, reference_chain + [definition_display(target)], active_chain)
+            visit_definition(
+                target,
+                selected_slot_path,
+                reference_chain + [definition_display(target)],
+                active_chain,
+                selected_attach_point,
+            )
 
-    visit_definition(entry_definition, [], [root_definition], [])
+    visit_definition(entry_definition, [], [root_definition], [], None)
 
     manifest_dependencies = []
     for comparison_key in sorted(dependencies):
@@ -249,6 +292,7 @@ def resolve(definition_path: Path, definition_root: Optional[Path] = None) -> Di
                         origin["definition"],
                         origin["slot_path"],
                         origin["attribute"],
+                        origin["attach_point"] or "",
                     ),
                 ),
                 "path": dependency["path"],
@@ -258,7 +302,7 @@ def resolve(definition_path: Path, definition_root: Optional[Path] = None) -> Di
     return {
         "definitions": [definitions[key] for key in sorted(definitions)],
         "dependencies": manifest_dependencies,
-        "format_version": 2,
+        "format_version": 3,
         "root_definition": root_definition,
         "selection_strategy": "first-variant-per-slot",
     }

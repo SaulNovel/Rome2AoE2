@@ -20,6 +20,9 @@ RECURSIVE = FIXTURE_ROOT / "recursive"
 
 
 class VariantMeshDefinitionResolverTests(unittest.TestCase):
+    def resolve_attach_point_fixture(self):
+        return resolve(FIXTURE_ROOT / "attach_points" / "root.variantmeshdefinition", FIXTURE_ROOT)
+
     def test_resolves_only_the_first_variant_in_each_slot(self):
         manifest = resolve(FIXTURE_ROOT / "first_variant.variantmeshdefinition", FIXTURE_ROOT)
 
@@ -40,11 +43,57 @@ class VariantMeshDefinitionResolverTests(unittest.TestCase):
             manifest["dependencies"][3]["origins"],
             [{
                 "attribute": "model",
+                "attach_point": None,
                 "definition": "first_variant.variantmeshdefinition",
                 "reference_chain": ["first_variant.variantmeshdefinition"],
                 "slot_path": "type/helmet/crest",
             }],
         )
+
+    def test_direct_attach_point_is_preserved(self):
+        manifest = self.resolve_attach_point_fixture()
+
+        self.assertEqual(manifest["format_version"], 3)
+        direct = next(dependency for dependency in manifest["dependencies"] if dependency["normalized_path"] == "models/direct.rigid_model_v2")
+        self.assertEqual(direct["origins"][0]["attach_point"], "weapon_02")
+
+    def test_nearest_nonempty_attach_point_is_inherited_and_overridden(self):
+        manifest = self.resolve_attach_point_fixture()
+
+        origins = {
+            dependency["normalized_path"]: dependency["origins"][0]
+            for dependency in manifest["dependencies"]
+        }
+        self.assertEqual(origins["models/inherited.rigid_model_v2"]["attach_point"], "weapon_03")
+        self.assertEqual(origins["models/overridden.rigid_model_v2"]["attach_point"], "weapon_05")
+
+    def test_attach_point_crosses_nested_definition_references(self):
+        manifest = self.resolve_attach_point_fixture()
+
+        nested = next(dependency for dependency in manifest["dependencies"] if dependency["normalized_path"] == "models/nested.rigid_model_v2")
+        origin = nested["origins"][0]
+        self.assertEqual(origin["attach_point"], "weapon_03")
+        self.assertEqual(origin["slot_path"], "nested/model")
+
+    def test_missing_attach_point_is_explicitly_unavailable(self):
+        manifest = self.resolve_attach_point_fixture()
+
+        missing = next(dependency for dependency in manifest["dependencies"] if dependency["normalized_path"] == "models/missing.rigid_model_v2")
+        self.assertIsNone(missing["origins"][0]["attach_point"])
+
+    def test_praetorian_equipment_attachment_values_are_preserved(self):
+        manifest = self.resolve_attach_point_fixture()
+
+        attachments = {
+            dependency["normalized_path"]: dependency["origins"][0]["attach_point"]
+            for dependency in manifest["dependencies"]
+            if "roman_" in dependency["normalized_path"]
+        }
+        self.assertEqual(attachments, {
+            "shield/roman_augustan_scutuma.rigid_model_v2": "weapon_03",
+            "weapons/roman_gladius.rigid_model_v2": "weapon_02",
+            "weapons/roman_pilum_heavy.rigid_model_v2": "weapon_05",
+        })
 
     def test_resolves_direct_reference_relative_to_configurable_root(self):
         manifest = resolve(RECURSIVE / "direct_root.variantmeshdefinition", FIXTURE_ROOT)
