@@ -613,6 +613,13 @@ It fixes an orthographic camera, stable feet anchor/canvas, direction policy,
 lighting, transparent color output, and a separate shadow pass. Calibration is
 kept distinct from future source-sample rendering and SMX encoding.
 
+The textured-unit calibration is versioned separately as
+`config/render_profiles/aoe2_de_infantry_v2.json`. It preserves the v1 camera
+geometry, renders Cycles internally at 4x resolution, and performs deterministic
+premultiplied-alpha bicubic reduction to the stable 200x200 canvas. Canonical
+geometry, materials, equipment and source animation samples are not reduced or
+mutated by this output-only stage.
+
 ---
 
 ### Stage 7 — Frame Processing

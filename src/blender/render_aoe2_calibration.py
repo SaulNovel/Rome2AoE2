@@ -11,8 +11,9 @@ from mathutils import Vector
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from aoe2_render_profile import (camera_location, deterministic_json, direction_angles,
-                                 load_profile, output_filename, sample_blender_frame,
-                                 stable_canvas)
+                                 internal_dimensions, load_profile, output_filename,
+                                 sample_blender_frame, stable_canvas)
+from downsample_rgba import downsample_rgba
 
 
 def arguments():
@@ -62,7 +63,11 @@ def make_lighting(profile):
     sun.rotation_euler = (Vector((0, 0, 0)) - Vector(point)).to_track_quat("-Z", "Y").to_euler()
     if bpy.context.scene.world is None:
         bpy.context.scene.world = bpy.data.worlds.new("AoE2CalibrationWorld")
-    bpy.context.scene.world.color = (lighting["ambient_strength"],) * 3
+    world = bpy.context.scene.world
+    world.use_nodes = True
+    background = world.node_tree.nodes.get("Background")
+    background.inputs["Color"].default_value = (1.0, 1.0, 1.0, 1.0)
+    background.inputs["Strength"].default_value = lighting["ambient_strength"]
 
 
 def make_shadow_catcher(profile):
@@ -77,8 +82,7 @@ def configure_scene(profile, args):
     scene = bpy.context.scene
     render = profile["render"]
     scene.render.engine = render["engine"]
-    scene.render.resolution_x = render["width"]
-    scene.render.resolution_y = render["height"]
+    scene.render.resolution_x, scene.render.resolution_y = internal_dimensions(profile)
     scene.render.resolution_percentage = render["resolution_percentage"]
     scene.render.film_transparent = render["film_transparent"]
     scene.render.image_settings.file_format = "PNG"
@@ -97,6 +101,34 @@ def configure_scene(profile, args):
                                  args.scene_fps, args.timeline_start)
     scene.frame_set(round(frame))
     return frame
+
+
+def downsample_render(source, destination, profile, alpha_scale=1.0):
+    source_image = bpy.data.images.load(str(source.resolve()), check_existing=False)
+    pixels = list(source_image.pixels)
+    width, height = source_image.size
+    target_width = profile["render"]["width"]
+    target_height = profile["render"]["height"]
+    scale = profile["render"].get("internal_render_scale", 1)
+    if scale == 1 and alpha_scale == 1.0:
+        if source != destination:
+            destination.write_bytes(source.read_bytes())
+        bpy.data.images.remove(source_image)
+        return
+    reduced = (pixels if scale == 1 else
+               downsample_rgba(pixels, width, height, target_width, target_height,
+                               profile["render"]["downsample_method"]))
+    if alpha_scale != 1.0:
+        for offset in range(3, len(reduced), 4):
+            reduced[offset] = min(1.0, max(0.0, reduced[offset] * alpha_scale))
+    output_image = bpy.data.images.new("AoE2Downsampled", target_width, target_height, alpha=True)
+    output_image.alpha_mode = "STRAIGHT"
+    output_image.pixels.foreach_set(reduced)
+    output_image.file_format = "PNG"
+    output_image.filepath_raw = str(destination.resolve())
+    output_image.save()
+    bpy.data.images.remove(output_image)
+    bpy.data.images.remove(source_image)
 
 
 def rendered_bounds(path, threshold=1.0 / 255.0):
@@ -147,10 +179,13 @@ def main():
         camera = make_camera(profile, angles[index])
         bpy.context.scene.camera = camera
         output = args.output_dir / output_filename(args.animation, args.source_sample, index)
+        scale = profile["render"].get("internal_render_scale", 1)
+        high_output = output if scale == 1 else args.output_dir / output.name.replace(".png", f"-{scale}x.png")
         if shadow is not None:
             shadow.hide_render = True
-        bpy.context.scene.render.filepath = str(output.resolve())
+        bpy.context.scene.render.filepath = str(high_output.resolve())
         bpy.ops.render.render(write_still=True)
+        downsample_render(high_output, output, profile)
         bounds = rendered_bounds(output)
         shadow_output = None
         shadow_bounds = None
@@ -162,8 +197,11 @@ def main():
                     camera_visibility[obj.name] = obj.visible_camera
                     obj.visible_camera = False
             shadow_output = args.output_dir / output_filename(args.animation, args.source_sample, index, "shadow")
-            bpy.context.scene.render.filepath = str(shadow_output.resolve())
+            high_shadow_output = shadow_output if scale == 1 else args.output_dir / shadow_output.name.replace(".png", f"-{scale}x.png")
+            bpy.context.scene.render.filepath = str(high_shadow_output.resolve())
             bpy.ops.render.render(write_still=True)
+            downsample_render(high_shadow_output, shadow_output, profile,
+                              profile.get("shadow", {}).get("opacity", 1.0))
             shadow_bounds = rendered_bounds(shadow_output, threshold=0.02)
             for name, visible in camera_visibility.items():
                 bpy.data.objects[name].visible_camera = visible
@@ -178,6 +216,7 @@ def main():
             "visible_pixel_bounds": bounds,
             "unit_pixel_height": None if bounds is None else bounds[3] - bounds[1],
             "output": output.name,
+            "high_resolution_output": high_output.name,
             "shadow_output": None if shadow_output is None else shadow_output.name,
             "shadow_bounds": shadow_bounds,
         })

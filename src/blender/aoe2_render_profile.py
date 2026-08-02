@@ -6,14 +6,15 @@ from pathlib import Path
 
 
 SUPPORTED_ENGINES = {"BLENDER_EEVEE", "CYCLES"}
+SUPPORTED_DOWNSAMPLE_FILTERS = {"bicubic", "lanczos3"}
 REQUIRED_SECTIONS = {
     "camera", "target", "lighting", "render", "directions", "canvas", "sampling"
 }
 
 
 def load_profile(path):
-    profile = json.loads(Path(path).read_text(encoding="utf-8"))
-    if profile.get("format") != "rome2aoe2.render-profile" or profile.get("version") != 1:
+    profile = json.loads(Path(path).read_text(encoding="utf-8-sig"))
+    if profile.get("format") != "rome2aoe2.render-profile" or profile.get("version") not in (1, 2):
         raise ValueError("unsupported render profile format/version")
     missing = sorted(REQUIRED_SECTIONS - profile.keys())
     if missing:
@@ -31,6 +32,14 @@ def load_profile(path):
     for key in ("width", "height"):
         if profile["render"].get(key, 0) <= 0:
             raise ValueError(f"render.{key} must be positive")
+    scale = profile["render"].get("internal_render_scale", 1)
+    if not isinstance(scale, int) or scale not in (1, 2, 4):
+        raise ValueError("render.internal_render_scale must be 1, 2, or 4")
+    method = profile["render"].get("downsample_method", "bicubic")
+    if method not in SUPPORTED_DOWNSAMPLE_FILTERS:
+        raise ValueError("unsupported downsample method")
+    if profile.get("version") == 2 and profile.get("status") not in {"calibrated", "provisional"}:
+        raise ValueError("version 2 profile requires calibrated or provisional status")
     return profile
 
 
@@ -78,6 +87,29 @@ def stable_canvas(profile):
         "anchor_pixels": list(profile["canvas"]["anchor_pixels"]),
         "policy": profile["canvas"]["policy"],
     }
+
+
+def internal_dimensions(profile):
+    scale = profile["render"].get("internal_render_scale", 1)
+    return profile["render"]["width"] * scale, profile["render"]["height"] * scale
+
+
+def scaled_anchor(profile):
+    scale = profile["render"].get("internal_render_scale", 1)
+    return [value * scale for value in profile["canvas"]["anchor_pixels"]]
+
+
+def shadow_filename(animation, sample, direction_index):
+    return output_filename(animation, sample, direction_index, "shadow")
+
+
+def representative_frames():
+    return [
+        {"animation": "sws_stand", "source_sample": 0, "purpose": "stand_start"},
+        {"animation": "sws_stand", "source_sample": 21, "purpose": "stand_middle"},
+        {"animation": "sws_combat_ready", "source_sample": 22, "purpose": "combat_ready"},
+        {"animation": "sws_charge_javelin_throw_001", "source_sample": 30, "purpose": "pilum_throw"},
+    ]
 
 
 def deterministic_json(document):

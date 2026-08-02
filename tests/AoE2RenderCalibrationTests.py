@@ -6,11 +6,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src" / "blender"))
 from aoe2_render_profile import (alpha_bounds, camera_location, deterministic_json,
-                                 direction_angles, load_profile, output_filename,
-                                 sample_blender_frame, stable_canvas)
+                                 direction_angles, internal_dimensions, load_profile,
+                                 output_filename, representative_frames, sample_blender_frame,
+                                 scaled_anchor, shadow_filename, stable_canvas)
+from downsample_rgba import downsample_rgba
 
 
 PROFILE = ROOT / "config" / "render_profiles" / "aoe2_de_infantry_v1.json"
+PROFILE_V2 = ROOT / "config" / "render_profiles" / "aoe2_de_infantry_v2.json"
 
 
 class AoE2RenderCalibrationTests(unittest.TestCase):
@@ -23,6 +26,11 @@ class AoE2RenderCalibrationTests(unittest.TestCase):
 
     def test_profile_parses(self):
         self.assertEqual(load_profile(PROFILE)["name"], "aoe2_de_infantry_v1")
+
+    def test_profile_versioning_and_migration(self):
+        profile = load_profile(PROFILE_V2)
+        self.assertEqual(profile["version"], 2)
+        self.assertEqual(profile["inherits"], "aoe2_de_infantry_v1")
 
     def test_missing_required_settings(self):
         data = json.loads(PROFILE.read_text())
@@ -44,11 +52,43 @@ class AoE2RenderCalibrationTests(unittest.TestCase):
     def test_stable_canvas(self):
         self.assertEqual(stable_canvas(load_profile(PROFILE))["anchor_pixels"], [100, 100])
 
+    def test_internal_scale_dimensions_and_anchor(self):
+        profile = load_profile(PROFILE_V2)
+        self.assertEqual(internal_dimensions(profile), (800, 800))
+        self.assertEqual(scaled_anchor(profile), [400, 400])
+
+    def test_invalid_render_scale(self):
+        data = json.loads(PROFILE_V2.read_text())
+        data["render"]["internal_render_scale"] = 3
+        with self.assertRaisesRegex(ValueError, "internal_render_scale"):
+            load_profile(self.write_profile(data, "invalid-scale.json"))
+
+    def test_deterministic_filter_selection(self):
+        data = json.loads(PROFILE_V2.read_text())
+        data["render"]["downsample_method"] = "nearest"
+        with self.assertRaisesRegex(ValueError, "downsample"):
+            load_profile(self.write_profile(data, "invalid-filter.json"))
+
+    def test_alpha_correct_downsample_preserves_output_and_alpha(self):
+        pixels = [1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        result = downsample_rgba(pixels, 2, 2, 1, 1, "bicubic")
+        self.assertEqual(len(result), 4)
+        self.assertGreater(result[3], 0)
+        self.assertGreater(result[0], 0.9)
+
     def test_alpha_bounds(self):
         self.assertEqual(alpha_bounds(2, 2, [0, 1, 1, 0]), [0, 0, 2, 2])
 
     def test_output_filename(self):
         self.assertEqual(output_filename("sws_stand.anim", 0, 7), "sws_stand-sample-0000-direction-07-color.png")
+
+    def test_shadow_filename(self):
+        self.assertEqual(shadow_filename("sws_stand.anim", 0, 7), "sws_stand-sample-0000-direction-07-shadow.png")
+
+    def test_representative_frames_are_stable(self):
+        frames = representative_frames()
+        self.assertEqual([item["source_sample"] for item in frames], [0, 21, 22, 30])
+        self.assertEqual(deterministic_json({"frames": frames}), deterministic_json({"frames": representative_frames()}))
 
     def test_manifest_determinism(self):
         self.assertEqual(deterministic_json({"b": 2, "a": 1}), '{\n  "a": 1,\n  "b": 2\n}\n')

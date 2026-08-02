@@ -125,3 +125,62 @@ Militia/Legionary in the diagnostic scenario. That check must settle the facet
 semantic offset, apparent scale in game, alpha/shadow interpretation, and
 whether DE expects eight custom facets or benefits from all 16. Rome II textures
 and team-color masks should follow; lighting values must then be revalidated.
+
+## Textured-unit final calibration (v2)
+
+`config/render_profiles/aoe2_de_infantry_v2.json` supersedes v1 for future
+rendering while retaining v1 as the historical provisional profile. Camera
+geometry is unchanged: 45-degree base azimuth, 30-degree elevation, 8.5
+orthographic scale, 200x200 canvas, and ground origin at (100,100). V2 supports
+16 independent directions and retains `source_samples` as the default future
+animation policy.
+
+The controlled textured sweep is recorded beneath
+`build/local-integration/aoe2-final-calibration/sweep/`. Its v1-like low
+candidate measured mean/p10/p90 visible luminance 0.203/0.060/0.343. The
+selected Standard candidate measured 0.250/0.072/0.431, improving midtone
+separation without clipping metal highlights. AgX compressed tiny highlight
+structures and produced a 0.052 p10. Khronos PBR Neutral reduced the mean to
+0.151 and p10 to 0.017. Standard was selected for gameplay-scale readability,
+not cinematic appearance.
+
+Selected settings are a Sun at azimuth 135 degrees, elevation 60 degrees,
+strength 2.6 and angular size 12 degrees; white world fill 0.65; Standard view
+transform; no look; exposure +0.65; gamma 1; and straight-alpha RGBA8 PNG.
+Cycles uses 48 samples without denoising.
+
+Direct, 2x, and 4x rendering were compared. V2 renders internally at 800x800
+and reduces to 200x200 with a project-owned premultiplied-alpha bicubic filter.
+Direct output contained 241 fractional-alpha edge pixels, 2x bicubic 201, and
+4x bicubic 183. Lanczos3 expanded the visible box from 20x44 to 23x48 and
+created 319 fractional edge pixels, showing ringing around the crest and thin
+weapons. Bicubic was selected; no final sharpening is applied. High-resolution
+intermediates remain available locally.
+
+Across all 16 stand directions, output height is 43-45 pixels and the projected
+foot origin remains (100,100). Chainmail, cloth folds, and skin separate more
+clearly than v1 without metallic glare or crushed cloth. Crest and tunic edges
+remain clean. Sword visibility is direction-dependent but stable, and the
+pilum remains a thin readable line in the representative throw pose.
+
+The authored shield pattern remains in the canonical material. In the standing
+pose the shield is mostly oblique, and the emblem is not reliably identifiable
+after reduction. Lighting cannot restore a sub-pixel motif, so no material or
+decal change was made. A later in-game facing check must establish whether a
+more shield-forward animation provides enough projected area.
+
+The shadow remains a separate black-alpha layer. V2 applies opacity 0.58 after
+alpha-correct reduction. At the operational 0.02-alpha threshold, stand shadow
+bounds remain attached to the foot region and rotate consistently with the
+fixed key direction. Very-low-alpha resampling fringe is excluded from those
+bounds.
+
+Final proofs and deterministic reports are under
+`build/local-integration/aoe2-final-calibration/final/`. They cover stand sample
+0 in all 16 directions, stand sample 21, combat-ready sample 22, and pilum-throw
+sample 30. No geometry, texture, material, rig, equipment transform, or source
+animation sample was changed.
+
+Team-color interpretation and layered SLD packaging remain future milestones.
+The researched DESpriteTool/PSD bridge should consume this profile without
+mutating the canonical scene or source samples.
