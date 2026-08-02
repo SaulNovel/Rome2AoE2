@@ -356,3 +356,16 @@ The fragment, rather than track presence, keeps the `weapon_05` pilum inactive.
 Both visible equipment bounds contain their expected hand points without manual
 correction, while the crest remains metadata-driven through bone 23 and
 `crest_centre`.
+
+The animation layer now preserves complete source clips. One canonical Rust
+decoder feeds both full JSON inspection and the retained single-pose debugging
+command. Blender imports every endpoint-inclusive sample into linear location
+and quaternion curves at a configurable scene FPS: stand maps to frames 1–169,
+combat-ready to 1–177, and pilum throw to 1–181 at 60 FPS. Equipment follows
+provenance-selected bones through constraints; fragment flags control clip-level
+visibility. Projectile release timing is still unresolved and is not inferred
+from the presence of a weapon-05 transform.
+
+Future sprite generation should introduce a separate immutable-clip render
+sampler, defaulting to source samples, rather than adding reduction options to
+the Rome II decoder or Blender importer.

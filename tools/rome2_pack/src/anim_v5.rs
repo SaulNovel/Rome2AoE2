@@ -14,7 +14,9 @@ const VERIFIED_BONE_COUNT: usize = 50;
 const VERIFIED_TRANSLATION_TRACKS: usize = 6;
 const VERIFIED_ROTATION_TRACKS: usize = 32;
 const QUATERNION_MIN_NORM: f64 = 1.0e-8;
-const QUATERNION_NORM_TOLERANCE: f64 = 1.0e-4;
+// The verified throw clip contains source quaternions as far as 0.0024662
+// from unit length. Accept that stored-data error, then always normalize.
+const QUATERNION_NORM_TOLERANCE: f64 = 3.0e-3;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum FrameSelection {
@@ -83,6 +85,34 @@ struct AnimationV5 {
     sample_count: usize,
     frame_data_offset: usize,
     bytes: Vec<u8>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct AnimationBoneFrame {
+    transform: Transform,
+    local_matrix: Matrix4,
+    world_matrix: Matrix4,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct AnimationFrame {
+    index: usize,
+    time_seconds: f64,
+    bones: Vec<AnimationBoneFrame>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct AnimationClip {
+    animation: String,
+    skeleton_id: String,
+    sample_rate: f32,
+    duration: f32,
+    translation_map: Vec<i32>,
+    rotation_map: Vec<i32>,
+    translation_track_count: usize,
+    rotation_track_count: usize,
+    bones: Vec<SkeletonBone>,
+    frames: Vec<AnimationFrame>,
 }
 
 fn take<const N: usize>(bytes: &[u8], offset: &mut usize, label: &str) -> Result<[u8; N], String> {
@@ -473,35 +503,12 @@ fn validate_matching_skeletons(clip: &AnimationV5, skeleton: &AnimationV5) -> Re
     Ok(())
 }
 
-fn bone_json(
-    index: usize,
-    bones: &[SkeletonBone],
-    translation_map: &[i32],
-    rotation_map: &[i32],
-    transforms: &[Transform],
-    local: &[Matrix4],
-    world: &[Matrix4],
-) -> Value {
-    json!({
-        "index": index,
-        "name": bones[index].name,
-        "parent": bones[index].parent,
-        "translation_track": (translation_map[index] >= 0).then_some(translation_map[index]),
-        "rotation_track": (rotation_map[index] >= 0).then_some(rotation_map[index]),
-        "local_translation": transforms[index].translation,
-        "local_rotation_xyzw": transforms[index].rotation,
-        "local_matrix": local[index],
-        "world_matrix": world[index],
-    })
-}
-
-fn inspect_bytes(
+fn decode_animation_clip(
     animation_name: &str,
     animation_bytes: &[u8],
     skeleton_bytes: &[u8],
     inverse_bind_bytes: &[u8],
-    selection: FrameSelection,
-) -> Result<Value, String> {
+) -> Result<AnimationClip, String> {
     let clip = parse(animation_bytes)?;
     let skeleton = parse(skeleton_bytes)?;
     validate_matching_skeletons(&clip, &skeleton)?;
@@ -562,109 +569,253 @@ fn inspect_bytes(
             rotation: fallback_rotations[skeleton.rotation_map[bone] as usize],
         })
         .collect::<Vec<_>>();
-    let frame_index = selection.resolve(clip.sample_count)?;
-    let transforms = clip.expanded_frame(frame_index, &fallback)?;
-    let local = transforms
-        .iter()
-        .copied()
-        .map(transform_matrix)
-        .collect::<Vec<_>>();
-    let world = world_matrices(&clip.bones, &local)?;
-    let bones = (0..clip.bones.len())
-        .map(|index| {
-            bone_json(
-                index,
-                &clip.bones,
-                &clip.translation_map,
-                &clip.rotation_map,
-                &transforms,
-                &local,
-                &world,
-            )
-        })
-        .collect::<Vec<_>>();
-
-    let mut weapon_bones = Map::new();
-    for (key, name) in [
-        ("weapon_02", "bn_weapon_02"),
-        ("weapon_03", "bn_weapon_03"),
-        ("weapon_05", "bn_weapon_05"),
-    ] {
-        let index = clip
-            .bones
+    let mut frames = Vec::with_capacity(clip.sample_count);
+    for index in 0..clip.sample_count {
+        let transforms = clip.expanded_frame(index, &fallback)?;
+        let local = transforms
             .iter()
-            .position(|bone| bone.name == name)
-            .ok_or_else(|| format!("Required weapon bone '{}' is missing", name))?;
-        weapon_bones.insert(
-            key.to_owned(),
-            bone_json(
-                index,
-                &clip.bones,
-                &clip.translation_map,
-                &clip.rotation_map,
-                &transforms,
-                &local,
-                &world,
-            ),
-        );
+            .copied()
+            .map(transform_matrix)
+            .collect::<Vec<_>>();
+        let world = world_matrices(&clip.bones, &local)?;
+        let time_seconds = index as f64 / f64::from(clip.sample_rate);
+        if index == 0 && time_seconds != 0.0 {
+            return Err("First animation timestamp is not zero".to_owned());
+        }
+        if frames
+            .last()
+            .is_some_and(|previous: &AnimationFrame| time_seconds <= previous.time_seconds)
+        {
+            return Err(format!("Animation timestamp {} is not increasing", index));
+        }
+        frames.push(AnimationFrame {
+            index,
+            time_seconds,
+            bones: (0..clip.bones.len())
+                .map(|bone| AnimationBoneFrame {
+                    transform: transforms[bone],
+                    local_matrix: local[bone],
+                    world_matrix: world[bone],
+                })
+                .collect(),
+        });
     }
-
-    Ok(json!({
-        "format": FORMAT,
-        "version": FORMAT_VERSION,
-        "animation": animation_name,
-        "skeleton_id": clip.skeleton_id,
-        "sample_rate": clip.sample_rate,
-        "duration": clip.duration,
-        "sample_count": clip.sample_count,
-        "frame_index": frame_index,
-        "sample_time": frame_index as f64 / f64::from(clip.sample_rate),
-        "bone_count": clip.bones.len(),
-        "source_coordinate_convention": {
-            "translation": "Rome II XYZ",
-            "rotation": "Rome II quaternion XYZW, normalized after signed i16/32767 decoding",
-            "vectors": "column vectors",
-            "matrix_storage": "row-major JSON arrays",
-            "composition": "world = parent_world * local",
-            "scale": "identity"
-        },
-        "bones": bones,
-        "weapon_bones": weapon_bones,
-    }))
+    if frames.is_empty() {
+        return Err("Animation contains no source samples".to_owned());
+    }
+    let final_time = frames.last().unwrap().time_seconds;
+    let time_tolerance = 1.0e-5f64.max(f64::from(clip.duration).abs() * 1.0e-6);
+    if (final_time - f64::from(clip.duration)).abs() > time_tolerance {
+        return Err(format!(
+            "Final sample time {} does not match declared duration {} within tolerance {}",
+            final_time, clip.duration, time_tolerance
+        ));
+    }
+    Ok(AnimationClip {
+        animation: animation_name.to_owned(),
+        skeleton_id: clip.skeleton_id,
+        sample_rate: clip.sample_rate,
+        duration: clip.duration,
+        translation_map: clip.translation_map,
+        rotation_map: clip.rotation_map,
+        translation_track_count: clip.translation_track_count,
+        rotation_track_count: clip.rotation_track_count,
+        bones: clip.bones,
+        frames,
+    })
 }
 
-pub(super) fn inspect(
+fn bone_json(clip: &AnimationClip, frame: &AnimationFrame, index: usize, maps: bool) -> Value {
+    let bone = &frame.bones[index];
+    let mut value = json!({
+        "index": index,
+        "name": clip.bones[index].name,
+        "parent": clip.bones[index].parent,
+        "local_translation": bone.transform.translation,
+        "local_rotation_xyzw": bone.transform.rotation,
+        "local_matrix": bone.local_matrix,
+        "world_matrix": bone.world_matrix,
+    });
+    if maps {
+        value["translation_track"] =
+            json!((clip.translation_map[index] >= 0).then_some(clip.translation_map[index]));
+        value["rotation_track"] =
+            json!((clip.rotation_map[index] >= 0).then_some(clip.rotation_map[index]));
+    }
+    value
+}
+
+impl AnimationClip {
+    fn pose_json(&self, selection: FrameSelection) -> Result<Value, String> {
+        let frame_index = selection.resolve(self.frames.len())?;
+        let frame = &self.frames[frame_index];
+        let bones = (0..self.bones.len())
+            .map(|index| bone_json(self, frame, index, true))
+            .collect::<Vec<_>>();
+        let mut weapon_bones = Map::new();
+        for (key, name) in [
+            ("weapon_02", "bn_weapon_02"),
+            ("weapon_03", "bn_weapon_03"),
+            ("weapon_05", "bn_weapon_05"),
+        ] {
+            let index = self
+                .bones
+                .iter()
+                .position(|bone| bone.name == name)
+                .ok_or_else(|| format!("Required weapon bone '{}' is missing", name))?;
+            weapon_bones.insert(key.to_owned(), bone_json(self, frame, index, true));
+        }
+        Ok(json!({
+            "format": FORMAT,
+            "version": FORMAT_VERSION,
+            "animation": self.animation,
+            "skeleton_id": self.skeleton_id,
+            "sample_rate": self.sample_rate,
+            "duration": self.duration,
+            "sample_count": self.frames.len(),
+            "frame_index": frame.index,
+            "sample_time": frame.time_seconds,
+            "bone_count": self.bones.len(),
+            "source_coordinate_convention": coordinate_convention(),
+            "bones": bones,
+            "weapon_bones": weapon_bones,
+        }))
+    }
+
+    fn full_json(&self) -> Value {
+        json!({
+            "format": "rome2aoe2.animation",
+            "version": 1,
+            "animation": self.animation,
+            "skeleton_id": self.skeleton_id,
+            "sample_rate": self.sample_rate,
+            "duration": self.duration,
+            "sample_count": self.frames.len(),
+            "endpoint_inclusive": true,
+            "translation_track_count": self.translation_track_count,
+            "rotation_track_count": self.rotation_track_count,
+            "translation_track_map": self.translation_map,
+            "rotation_track_map": self.rotation_map,
+            "bone_count": self.bones.len(),
+            "source_coordinate_convention": coordinate_convention(),
+            "frames": self.frames.iter().map(|frame| json!({
+                "index": frame.index,
+                "time_seconds": frame.time_seconds,
+                "bones": (0..self.bones.len()).map(|index| bone_json(self, frame, index, false)).collect::<Vec<_>>(),
+            })).collect::<Vec<_>>(),
+        })
+    }
+}
+
+fn coordinate_convention() -> Value {
+    json!({
+        "translation": "Rome II XYZ",
+        "rotation": "Rome II quaternion XYZW, normalized after signed i16/32767 decoding",
+        "vectors": "column vectors",
+        "matrix_storage": "row-major JSON arrays",
+        "composition": "world = parent_world * local",
+        "scale": "identity"
+    })
+}
+
+fn load_clip(
+    animation: &Path,
+    skeleton_anim: &Path,
+    inverse_bind: &Path,
+) -> Result<AnimationClip, String> {
+    let animation_name = animation
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("<non-utf8-animation>");
+    let animation_bytes =
+        fs::read(animation).map_err(|error| format!("Unable to read animation: {}", error))?;
+    let skeleton_bytes = fs::read(skeleton_anim)
+        .map_err(|error| format!("Unable to read skeleton animation: {}", error))?;
+    let inverse_bind_bytes = fs::read(inverse_bind)
+        .map_err(|error| format!("Unable to read inverse-bind resource: {}", error))?;
+    decode_animation_clip(
+        animation_name,
+        &animation_bytes,
+        &skeleton_bytes,
+        &inverse_bind_bytes,
+    )
+    .map_err(|error| format!("Animation '{}': {}", animation_name, error))
+}
+
+#[cfg(test)]
+fn inspect_bytes(
+    animation_name: &str,
+    animation_bytes: &[u8],
+    skeleton_bytes: &[u8],
+    inverse_bind_bytes: &[u8],
+    selection: FrameSelection,
+) -> Result<Value, String> {
+    decode_animation_clip(
+        animation_name,
+        animation_bytes,
+        skeleton_bytes,
+        inverse_bind_bytes,
+    )?
+    .pose_json(selection)
+}
+
+pub(super) fn inspect_pose(
     animation: &Path,
     skeleton_anim: &Path,
     inverse_bind: &Path,
     selection: FrameSelection,
 ) -> Result<Value, String> {
-    let animation_name = animation
+    let name = animation
         .file_name()
-        .and_then(|name| name.to_str())
+        .and_then(|value| value.to_str())
         .unwrap_or("<non-utf8-animation>");
-    let requested = selection.label();
-    let operation = || {
-        let animation_bytes =
-            fs::read(animation).map_err(|error| format!("Unable to read animation: {}", error))?;
-        let skeleton_bytes = fs::read(skeleton_anim)
-            .map_err(|error| format!("Unable to read skeleton animation: {}", error))?;
-        let inverse_bind_bytes = fs::read(inverse_bind)
-            .map_err(|error| format!("Unable to read inverse-bind resource: {}", error))?;
-        inspect_bytes(
-            animation_name,
-            &animation_bytes,
-            &skeleton_bytes,
-            &inverse_bind_bytes,
-            selection,
-        )
-    };
-    operation().map_err(|error| {
+    load_clip(animation, skeleton_anim, inverse_bind)
+        .and_then(|clip| clip.pose_json(selection))
+        .map_err(|error| {
+            format!(
+                "Animation '{}' requested frame '{}': {}",
+                name,
+                selection.label(),
+                error
+            )
+        })
+}
+
+pub(super) fn inspect_full(
+    animation: &Path,
+    skeleton_anim: &Path,
+    inverse_bind: &Path,
+    output: &Path,
+) -> Result<Value, String> {
+    let clip = load_clip(animation, skeleton_anim, inverse_bind)?;
+    let document = clip.full_json();
+    if let Some(parent) = output.parent() {
+        fs::create_dir_all(parent).map_err(|error| {
+            format!(
+                "Unable to create output directory '{}': {}",
+                parent.display(),
+                error
+            )
+        })?;
+    }
+    let serialized = serde_json::to_string_pretty(&document)
+        .map_err(|error| format!("Unable to serialize animation: {}", error))?
+        + "\n";
+    fs::write(output, serialized).map_err(|error| {
         format!(
-            "Animation '{}' requested frame '{}': {}",
-            animation_name, requested, error
+            "Unable to write animation output '{}': {}",
+            output.display(),
+            error
         )
-    })
+    })?;
+    Ok(json!({
+        "format": "rome2aoe2.animation-inspection-result",
+        "version": 1,
+        "animation": clip.animation,
+        "output": output.file_name().and_then(|name| name.to_str()).unwrap_or("<non-utf8-output>"),
+        "sample_count": clip.frames.len(),
+        "bone_count": clip.bones.len(),
+    }))
 }
 
 #[cfg(test)]
@@ -954,6 +1105,138 @@ mod tests {
         assert_eq!(
             serde_json::to_string(&first).unwrap(),
             serde_json::to_string(&second).unwrap()
+        );
+    }
+
+    fn decoded_fixture() -> AnimationClip {
+        let (clip, skeleton, inverse) = fixture();
+        decode_animation_clip("clip.anim", &clip, &skeleton, &inverse).unwrap()
+    }
+
+    #[test]
+    fn canonical_clip_decodes_and_preserves_every_source_sample() {
+        let clip = decoded_fixture();
+        assert_eq!(clip.frames.len(), 2);
+        assert_eq!(
+            clip.frames
+                .iter()
+                .map(|frame| frame.index)
+                .collect::<Vec<_>>(),
+            vec![0, 1]
+        );
+        assert_eq!(clip.frames[0].bones.len(), 50);
+        assert_eq!(clip.frames[1].bones.len(), 50);
+    }
+
+    #[test]
+    fn canonical_clip_preserves_endpoint_and_exact_timestamps() {
+        let clip = decoded_fixture();
+        assert_eq!(clip.frames[0].time_seconds, 0.0);
+        assert_eq!(clip.frames[1].time_seconds, 0.1);
+        assert!(
+            (clip.frames.last().unwrap().time_seconds - f64::from(clip.duration)).abs() < 1.0e-7
+        );
+        assert!(clip
+            .frames
+            .windows(2)
+            .all(|pair| pair[0].time_seconds < pair[1].time_seconds));
+    }
+
+    #[test]
+    fn canonical_clip_evaluates_each_frame_and_retains_source_order() {
+        let clip = decoded_fixture();
+        assert_ne!(
+            clip.frames[0].bones[0].transform,
+            clip.frames[1].bones[0].transform
+        );
+        assert_eq!(clip.frames[1].bones[6].world_matrix[0][3], 100.0 + 60.0);
+        let document = clip.full_json();
+        assert_eq!(document["frames"][0]["index"], 0);
+        assert_eq!(document["frames"][1]["index"], 1);
+        assert_eq!(document["frames"][0]["bones"][49]["index"], 49);
+    }
+
+    #[test]
+    fn frame_offsets_cover_first_intermediate_and_last_samples() {
+        let parents = hierarchy();
+        let (tm, rm) = clip_maps();
+        let parsed = parse(&synthetic(
+            5,
+            "rome_man_game",
+            &parents,
+            &tm,
+            &rm,
+            6,
+            32,
+            4,
+            0.3,
+        ))
+        .unwrap();
+        assert_eq!(parsed.frame_offset(0).unwrap(), parsed.frame_data_offset);
+        assert_eq!(
+            parsed.frame_offset(2).unwrap(),
+            parsed.frame_data_offset + 656
+        );
+        assert_eq!(
+            parsed.frame_offset(3).unwrap(),
+            parsed.frame_data_offset + 984
+        );
+    }
+
+    #[test]
+    fn full_clip_json_is_deterministic() {
+        let clip = decoded_fixture();
+        assert_eq!(
+            serde_json::to_string(&clip.full_json()).unwrap(),
+            serde_json::to_string(&clip.full_json()).unwrap()
+        );
+        assert_eq!(clip.full_json()["endpoint_inclusive"], true);
+    }
+
+    #[test]
+    fn pose_selection_uses_canonical_clip_frames() {
+        let clip = decoded_fixture();
+        for (selection, expected) in [
+            (FrameSelection::First, 0),
+            (FrameSelection::Last, 1),
+            (FrameSelection::Index(1), 1),
+        ] {
+            let pose = clip.pose_json(selection).unwrap();
+            assert_eq!(pose["frame_index"], expected);
+            assert_eq!(
+                pose["bones"][0]["local_translation"],
+                clip.full_json()["frames"][expected]["bones"][0]["local_translation"]
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_truncated_intermediate_and_final_frames() {
+        let parents = hierarchy();
+        let (tm, rm) = clip_maps();
+        let original = synthetic(5, "rome_man_game", &parents, &tm, &rm, 6, 32, 3, 0.2);
+        let mut intermediate = original.clone();
+        intermediate.truncate(intermediate.len() - 328 - 7);
+        assert!(parse(&intermediate)
+            .unwrap_err()
+            .contains("Truncated animation payload"));
+        let mut final_frame = original;
+        final_frame.pop();
+        assert!(parse(&final_frame)
+            .unwrap_err()
+            .contains("Truncated animation payload"));
+    }
+
+    #[test]
+    fn rejects_empty_or_invalid_sample_sequence() {
+        let parents = hierarchy();
+        let (tm, rm) = clip_maps();
+        let empty = synthetic(5, "rome_man_game", &parents, &tm, &rm, 6, 32, 0, 0.0);
+        let (_, skeleton, inverse) = fixture();
+        assert!(
+            decode_animation_clip("empty.anim", &empty, &skeleton, &inverse)
+                .unwrap_err()
+                .contains("sample count")
         );
     }
 

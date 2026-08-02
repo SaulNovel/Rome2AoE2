@@ -310,9 +310,11 @@ and exact hierarchy/name agreement with the supplied skeleton. The fallback
 skeleton is separately restricted to its verified 50/50 tracks, identity maps,
 and two samples. Its sample 0 supplies only a missing component whose clip map
 is `-1`; inverse-bind matrices are not substituted. Quaternions must be within
-`1e-4` of unit length before normalization. The existing skeleton inspection is
+`0.003` of unit length before normalization. The existing skeleton inspection is
 also run, so hierarchy, inverse-bind count, finiteness, singularity and bind-pose
-reconstruction remain validated.
+reconstruction remain validated. The complete throw clip proves that valid
+stored quaternions can differ from unit length by `0.0024662`; the implemented
+strict bound is therefore `0.003`, followed by mandatory normalization.
 
 Real frame-0 output for `sws_stand.anim` gives:
 
@@ -353,6 +355,78 @@ hands without correction, and the complete bounds are
 `[-0.619626,-0.738040,0.002720]` to `[0.649770,0.609273,1.997924]`. The assembled
 silhouette is a recognizable standing sword-and-shield Praetorian.
 
+## Canonical full-clip architecture
+
+`decode_animation_clip` is now the single decoding path. It parses each input
+once and produces an ordered `AnimationClip` whose `AnimationFrame` entries
+contain source index/time plus expanded local and evaluated world transforms for
+all 50 bones. `inspect-animation` serializes every frame, while
+`inspect-animation-pose` selects a frame from the same decoded clip. No sample is
+decoded through a pose-specific path.
+
+```text
+.anim v5 + skeleton sample 0 + inverse-bind validation
+    -> canonical AnimationClip (all source samples)
+       -> inspect-animation JSON
+       -> inspect-animation-pose selection
+       -> Blender Action
+```
+
+The canonical output preserves sample order, rate and the cyclic endpoint. It
+does not deduplicate, interpolate, resample, smooth or simplify. Real validation
+produced exactly 43 stand, 45 combat-ready and 61 throw frames, each containing
+50 bones. Their final times are 2.8, 2.933333333 and 3.0 seconds respectively;
+all agree with declared duration within the documented float tolerance.
+
+## Blender Action import
+
+`src/blender/import_animation_clip.py` consumes the canonical JSON and creates
+one Action. Scene FPS defaults to 60 and is configurable independently of source
+rate. Source time maps to `timeline_start + time_seconds * scene_fps`; the
+validated ranges are:
+
+| Clip | Source samples/rate | Blender frames | F-curves | Keyframe points |
+|---|---|---|---:|---:|
+| stand | 43 at 15 Hz | 1–169, every 4 frames | 350 | 15,050 |
+| combat ready | 45 at 15 Hz | 1–177, every 4 frames | 350 | 15,750 |
+| pilum throw | 61 at 20 Hz | 1–181, every 3 frames | 350 | 21,350 |
+
+Every bone receives three location and four quaternion curves. All source
+positions are retained, interpolation is explicitly linear, scale remains
+identity, and no extra baked keys or simplification are used. Blender rest/parent
+conversion reconstructs sampled source world matrices with maximum error
+`2.87e-6` across the three proofs. Weighted bounds remain finite and coherent;
+stand and combat endpoints have no visible discontinuity. Their maximum local
+component endpoint differences are `0.003052` and `0.000288`. The throw is not a
+loop and advances about 8.78 source units, as encoded.
+
+Equipment uses version-3 provenance and bone-follow constraints rather than
+independent object animation. A shared Rome-to-Blender basis wrapper is separate
+from the identity item-local transform. Maximum sampled equipment-follow error
+is below `7.7e-8`. Fragment flags give:
+
+- `STAND`: gladius 02 and shield 03 visible; pilum 05 hidden;
+- `COMBAT_READY`: gladius 02 and shield 03 visible; pilum 05 hidden;
+- `THROW_PILUM`: gladius 02, shield 03 and pilum 05 active.
+
+The crest follows `bn_head` using the original `crest_centre` matrix. Clip-level
+pilum activation does not establish the projectile release/hide frame; timed
+metadata and projectile handoff remain a later milestone.
+
+## Future render sampling boundary
+
+Render sampling must consume, never mutate, the canonical clip:
+
+```text
+canonical full animation
+    -> configurable render-frame sampler
+    -> selected AoE2 sprite frames
+```
+
+The future default is `render_sampling.mode: source_samples`. Possible later
+policies are `every_nth_sample`, `target_fps`, `explicit_frames`, and `adaptive`.
+None belongs in the `.anim` decoder or Blender Action importer.
+
 Limitations remain deliberate: only the reconciled Rome II v5 50-bone/6/32
-layout is accepted; there is no interpolation, playback, action/keyframe
-creation, general variant support, or pilum-throw decoding.
+layout is accepted. There is no general animation-version support, nonlinear
+interpolation, projectile release timing, rendering, or AoE2 action mapping.

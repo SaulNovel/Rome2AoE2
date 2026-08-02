@@ -61,6 +61,12 @@ enum Command {
         inverse_bind: PathBuf,
         frame: anim_v5::FrameSelection,
     },
+    InspectAnimation {
+        animation: PathBuf,
+        skeleton_anim: PathBuf,
+        inverse_bind: PathBuf,
+        output: PathBuf,
+    },
     ExportRmv2Gltf {
         input: PathBuf,
         output: PathBuf,
@@ -77,7 +83,7 @@ enum LodSelection {
 }
 
 fn usage() -> &'static str {
-    "Usage:\n  rome2aoe2-pack list --pack <pack-file>\n  rome2aoe2-pack contains --pack <pack-file> --path <pack-relative-path>\n  rome2aoe2-pack extract --pack <pack-file> --path <pack-relative-path> --output-root <directory>\n  rome2aoe2-pack create-test-pack --spec <json-file> --output <pack-file>\n  rome2aoe2-pack inspect-rmv2 --input <local-rmv2-file> [--decode]\n  rome2aoe2-pack inspect-skeleton --anim <local-anim-file> --inverse-bind <local-bone-inv-trans-mats-file>\n  rome2aoe2-pack inspect-animation-pose --animation <clip.anim> --skeleton-anim <skeleton.anim> --inverse-bind <bone-inv-trans-mats> --frame <first|last|index>\n  rome2aoe2-pack export-rmv2-gltf --input <local-rmv2-file> --output <output.gltf> --lod <highest|index> [--skeleton-anim <local-anim-file> --inverse-bind <local-bone-inv-trans-mats-file>]"
+    "Usage:\n  rome2aoe2-pack list --pack <pack-file>\n  rome2aoe2-pack contains --pack <pack-file> --path <pack-relative-path>\n  rome2aoe2-pack extract --pack <pack-file> --path <pack-relative-path> --output-root <directory>\n  rome2aoe2-pack create-test-pack --spec <json-file> --output <pack-file>\n  rome2aoe2-pack inspect-rmv2 --input <local-rmv2-file> [--decode]\n  rome2aoe2-pack inspect-skeleton --anim <local-anim-file> --inverse-bind <local-bone-inv-trans-mats-file>\n  rome2aoe2-pack inspect-animation-pose --animation <clip.anim> --skeleton-anim <skeleton.anim> --inverse-bind <bone-inv-trans-mats> --frame <first|last|index>\n  rome2aoe2-pack inspect-animation --animation <clip.anim> --skeleton-anim <skeleton.anim> --inverse-bind <bone-inv-trans-mats> --output <animation.json>\n  rome2aoe2-pack export-rmv2-gltf --input <local-rmv2-file> --output <output.gltf> --lod <highest|index> [--skeleton-anim <local-anim-file> --inverse-bind <local-bone-inv-trans-mats-file>]"
 }
 
 fn parse_pack_relative_path(value: &str) -> Result<PackRelativePath, String> {
@@ -195,6 +201,14 @@ fn parse_command(arguments: &[String]) -> Result<Command, String> {
             frame: frame.ok_or_else(|| "Missing --frame".to_owned())?,
         });
     }
+    if operation == "inspect-animation" {
+        return Ok(Command::InspectAnimation {
+            animation: animation.ok_or_else(|| "Missing --animation".to_owned())?,
+            skeleton_anim: skeleton_anim.ok_or_else(|| "Missing --skeleton-anim".to_owned())?,
+            inverse_bind: inverse_bind.ok_or_else(|| "Missing --inverse-bind".to_owned())?,
+            output: output.ok_or_else(|| "Missing --output".to_owned())?,
+        });
+    }
     if operation == "export-rmv2-gltf" {
         if skeleton_anim.is_some() != inverse_bind.is_some() {
             return Err(
@@ -248,7 +262,7 @@ const MATRIX_COMPARISON_EPSILON: f64 = 1.0e-8;
 
 type Matrix4 = [[f64; 4]; 4];
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 struct SkeletonBone {
     name: String,
     parent: Option<usize>,
@@ -1764,7 +1778,13 @@ fn run(command: Command) -> Result<serde_json::Value, String> {
             skeleton_anim,
             inverse_bind,
             frame,
-        } => anim_v5::inspect(&animation, &skeleton_anim, &inverse_bind, frame),
+        } => anim_v5::inspect_pose(&animation, &skeleton_anim, &inverse_bind, frame),
+        Command::InspectAnimation {
+            animation,
+            skeleton_anim,
+            inverse_bind,
+            output,
+        } => anim_v5::inspect_full(&animation, &skeleton_anim, &inverse_bind, &output),
         Command::ExportRmv2Gltf {
             input,
             output,
