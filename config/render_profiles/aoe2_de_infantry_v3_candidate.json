@@ -1,0 +1,79 @@
+{
+  "format": "rome2aoe2.render-profile",
+  "version": 3,
+  "name": "aoe2_de_infantry_v3_candidate",
+  "status": "in_game_visual_candidate",
+  "target_game": "Age of Empires II: Definitive Edition",
+  "inherits": "aoe2_de_infantry_v2",
+  "camera": {
+    "projection": "orthographic",
+    "azimuth_degrees": 45.0,
+    "elevation_degrees": 30.0,
+    "orthographic_scale": 8.5,
+    "distance": 12.0
+  },
+  "target": {
+    "origin": [0.0, 0.0, 0.0],
+    "feet_anchor_pixels": [100, 100]
+  },
+  "lighting": {
+    "key_type": "sun",
+    "key_azimuth_degrees": 135.0,
+    "key_elevation_degrees": 60.0,
+    "key_strength": 2.6,
+    "key_angular_size_degrees": 12.0,
+    "ambient_strength": 0.85
+  },
+  "render": {
+    "engine": "CYCLES",
+    "width": 200,
+    "height": 200,
+    "resolution_percentage": 100,
+    "transparent_background": true,
+    "view_transform": "Standard",
+    "look": "None",
+    "exposure": 0.95,
+    "gamma": 1.0,
+    "film_transparent": true,
+    "alpha_mode": "STRAIGHT",
+    "png_color_mode": "RGBA",
+    "png_bit_depth": 8,
+    "anti_aliasing_samples": 48,
+    "internal_render_scale": 4,
+    "downsample_method": "bicubic",
+    "final_sharpening": "none",
+    "shadow_pass": "separate"
+  },
+  "shadow": {
+    "opacity": 0.68,
+    "contact_opacity": 0.78,
+    "contact_radius_pixels": 5,
+    "catcher": "separate_transparent",
+    "contact_policy": "world_origin"
+  },
+  "directions": {
+    "count": 16,
+    "order": [
+      "rear_three_quarter", "rear_transition_01", "rear_transition_02", "side_transition_03",
+      "front_three_quarter", "front", "front_transition_06", "shield_forward_transition_07",
+      "shield_forward_side", "side_transition_09", "side_transition_10", "side_transition_11",
+      "rear_side", "rear_transition_13", "rear_transition_14", "rear_transition_15"
+    ],
+    "clockwise": true,
+    "validated_subset": [0, 4, 5, 8]
+  },
+  "canvas": {
+    "policy": "stable_profile_canvas",
+    "anchor_pixels": [100, 100]
+  },
+  "sampling": {
+    "mode": "source_samples"
+  },
+  "visual_candidate": {
+    "logical_height_pixels": 50,
+    "scale_variants": [45, 50, 54, 60],
+    "exposure_offsets_from_v2": [0.0, 0.3, 0.6],
+    "player_color_mapping": "pending_mask_channel_render",
+    "requires_in_game_acceptance": true
+  }
+}

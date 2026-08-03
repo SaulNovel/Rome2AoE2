@@ -1,0 +1,2 @@
+# PNG I/O for the direct AoE2 DE SLD authoring adapter.
+Pillow==12.1.0

@@ -14,7 +14,7 @@ REQUIRED_SECTIONS = {
 
 def load_profile(path):
     profile = json.loads(Path(path).read_text(encoding="utf-8-sig"))
-    if profile.get("format") != "rome2aoe2.render-profile" or profile.get("version") not in (1, 2):
+    if profile.get("format") != "rome2aoe2.render-profile" or profile.get("version") not in (1, 2, 3):
         raise ValueError("unsupported render profile format/version")
     missing = sorted(REQUIRED_SECTIONS - profile.keys())
     if missing:
@@ -40,6 +40,8 @@ def load_profile(path):
         raise ValueError("unsupported downsample method")
     if profile.get("version") == 2 and profile.get("status") not in {"calibrated", "provisional"}:
         raise ValueError("version 2 profile requires calibrated or provisional status")
+    if profile.get("version") == 3 and profile.get("status") != "in_game_visual_candidate":
+        raise ValueError("version 3 profile requires in_game_visual_candidate status")
     return profile
 
 

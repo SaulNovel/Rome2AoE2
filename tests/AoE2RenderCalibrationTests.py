@@ -14,6 +14,7 @@ from downsample_rgba import downsample_rgba
 
 PROFILE = ROOT / "config" / "render_profiles" / "aoe2_de_infantry_v1.json"
 PROFILE_V2 = ROOT / "config" / "render_profiles" / "aoe2_de_infantry_v2.json"
+PROFILE_V3 = ROOT / "config" / "render_profiles" / "aoe2_de_infantry_v3_candidate.json"
 
 
 class AoE2RenderCalibrationTests(unittest.TestCase):
@@ -31,6 +32,11 @@ class AoE2RenderCalibrationTests(unittest.TestCase):
         profile = load_profile(PROFILE_V2)
         self.assertEqual(profile["version"], 2)
         self.assertEqual(profile["inherits"], "aoe2_de_infantry_v1")
+
+    def test_visual_candidate_profile_preserves_camera_geometry(self):
+        v2, candidate=load_profile(PROFILE_V2),load_profile(PROFILE_V3)
+        self.assertEqual(3,candidate["version"]); self.assertEqual("in_game_visual_candidate",candidate["status"])
+        self.assertEqual(v2["camera"],candidate["camera"])
 
     def test_missing_required_settings(self):
         data = json.loads(PROFILE.read_text())
