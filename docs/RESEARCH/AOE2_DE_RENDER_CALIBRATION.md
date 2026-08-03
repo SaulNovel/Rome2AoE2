@@ -184,3 +184,37 @@ animation sample was changed.
 Team-color interpretation and layered SLD packaging remain future milestones.
 The researched DESpriteTool/PSD bridge should consume this profile without
 mutating the canonical scene or source samples.
+
+## In-game visual candidate (v3)
+
+`aoe2_de_infantry_v3_candidate.json` is an explicit diagnostic candidate; v2
+remains the calibrated baseline. V3 preserves the 30-degree elevation, 8.5
+orthographic scale, 200x200 canvas, material graph, and every source asset. It
+tests exposure +0.95 (a +0.3 change from v2), world fill 0.85, broad shadow
+opacity 0.68, and a five-pixel contact region capped at 0.78.
+
+The controlled front-three-quarter source sweep measured:
+
+| Candidate | Mean luminance | p10 | p50 | p90 | clipped highlights |
+|---|---:|---:|---:|---:|---:|
+| v2 | 51.86 | 10.00 | 40.49 | 105.00 | 0.33% |
+| exposure +0.3 | 57.66 | 12.14 | 45.35 | 115.28 | 0.78% |
+| exposure +0.6 | 63.88 | 14.41 | 50.78 | 127.00 | 1.44% |
+| +0.3 and fill 0.85 | 64.89 | 15.00 | 51.91 | 129.83 | 1.01% |
+
+This proves the dark result originates in the Blender source profile rather
+than BC1 or native SLD colour transport. The fill candidate gives comparable
+midtone recovery with less highlight clipping than exposure +0.6, so both are
+retained for the game test. No saturation adjustment is proposed: saturation
+slightly decreases as expected with exposure, and the RGB control already
+proved native channel fidelity.
+
+The enlarged labeled orientation sheet records the inspected numeric subset:
+0/45 degrees rear three-quarter, 4/315 front three-quarter, 5/292.5 front,
+and 8/225 shield-forward side. These names remain diagnostic until the
+four-view in-game rotation row confirms the semantic mapping.
+
+The provisional recommendation entering that test is 50 logical pixels,
+exposure +0.3 plus fill 0.85, restrained R-channel player colour, shadow 0.68
+with the contact enhancement, and the four numeric mappings above. None of
+these values supersedes v2 until the comparison scenario is observed.

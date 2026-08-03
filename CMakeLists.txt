@@ -146,3 +146,6 @@ set_tests_properties(RMV2ManifestExportTests PROPERTIES WORKING_DIRECTORY ${CMAK
 
 add_test(NAME AoE2RenderCalibrationTests COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_SOURCE_DIR}/tests/AoE2RenderCalibrationTests.py)
 set_tests_properties(AoE2RenderCalibrationTests PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
+add_test(NAME AoE2SLDAuthoringTests COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_SOURCE_DIR}/tests/AoE2SLDAuthoringTests.py)
+set_tests_properties(AoE2SLDAuthoringTests PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})

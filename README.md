@@ -19,6 +19,9 @@ rome2aoe2 convert \
 The tool should perform every intermediate step automatically.
 
 Rome2AoE2 is not intended to become another Rome II asset editor or another AoE2 sprite editor.
+Its AoE2 DE output path now uses a narrowly scoped, attributed native SLDX v4
+authoring adapter rather than generated Photoshop documents; see
+`docs/RESEARCH/AOE2_DE_SLD_AUTHORING.md`.
 
 It is an orchestration and conversion pipeline that integrates existing community tools with custom automation where no suitable tool currently exists.
 
@@ -619,6 +622,12 @@ geometry, renders Cycles internally at 4x resolution, and performs deterministic
 premultiplied-alpha bicubic reduction to the stable 200x200 canvas. Canonical
 geometry, materials, equipment and source animation samples are not reduced or
 mutated by this output-only stage.
+
+In-game visual calibration is isolated in
+`config/render_profiles/aoe2_de_infantry_v3_candidate.json`. It preserves v2
+and changes only explicitly measured output controls (exposure/fill, shadow,
+logical sprite height and player-colour coverage). Native SLD infrastructure
+acceptance is deliberately separate from acceptance of this visual candidate.
 
 ---
 
