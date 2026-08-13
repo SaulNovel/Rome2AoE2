@@ -8,6 +8,9 @@ from pathlib import Path
 import bpy
 from mathutils import Matrix, Vector
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from rome2.rmv2_named_attachment import named_attachment_local
+
 
 AXIS = Matrix(((1, 0, 0, 0), (0, 0, -1, 0), (0, 1, 0, 0), (0, 0, 0, 1)))
 AXIS_INV = AXIS.inverted()
@@ -151,7 +154,7 @@ def ensure_crest_parenting(armature, helmet_gltf):
     if attachment["bone_id"] != 23:
         raise RuntimeError("crest_centre does not target verified bone 23")
     rows = attachment["matrix"]
-    attachment_local = Matrix((rows[0], rows[1], rows[2], (0, 0, 0, 1)))
+    attachment_local = Matrix(named_attachment_local(rows))
     for crest in crests:
         wrapper = bpy.data.objects.new("attachment_crest_centre", None)
         bpy.context.scene.collection.objects.link(wrapper)
@@ -159,10 +162,11 @@ def ensure_crest_parenting(armature, helmet_gltf):
         constraint.target = armature
         constraint.subtarget = "bn_head"
         constraint.inverse_matrix = Matrix.Identity(4)
-        wrapper.matrix_basis = attachment_local @ AXIS_INV
+        wrapper.matrix_basis = AXIS @ attachment_local @ AXIS_INV
         crest.parent = wrapper
         crest.matrix_parent_inverse = Matrix.Identity(4)
-        crest.matrix_basis = Matrix.Identity(4)
+        # The normal rigid glTF import carries Material.Transform.Pivot here.
+        # Preserve it inside the named attachment; never apply it again.
     return {
         "present": True,
         "bone_name": "bn_head",
