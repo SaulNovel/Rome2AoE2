@@ -1,0 +1,40 @@
+diff --git a/Editors/ImportExportEditor/Editors.ImportExport/Exporting/Exporters/RmvToGltf/RmvToGltfStaticExporter.cs b/Editors/ImportExportEditor/Editors.ImportExport/Exporting/Exporters/RmvToGltf/RmvToGltfStaticExporter.cs
+index d3455e3..23a410d 100644
+--- a/Editors/ImportExportEditor/Editors.ImportExport/Exporting/Exporters/RmvToGltf/RmvToGltfStaticExporter.cs
++++ b/Editors/ImportExportEditor/Editors.ImportExport/Exporting/Exporters/RmvToGltf/RmvToGltfStaticExporter.cs
+@@ -1,4 +1,6 @@
+ ﻿using Editors.ImportExport.Exporting.Exporters.RmvToGltf.Helpers;
++using System.IO;
++using Editors.ImportExport.Common;
+ using Editors.ImportExport.Misc;
+ using Shared.Core.PackFiles.Models;
+ using Shared.GameFormats.RigidModel;
+@@ -42,16 +44,24 @@ namespace Editors.ImportExport.Exporting.Exporters.RmvToGltf
+             var meshes = _gltfMeshBuilder.Build(rmv2, textures, settings);
+
+             _logger.Here().Information($"Static Export - MeshCount={meshes.Count()} TextureCount={textures.Count()}");
+-            BuildGltfScene(meshes, settings, outputScene);
++            BuildGltfScene(rmv2, meshes, settings, outputScene);
+         }
+
+-        void BuildGltfScene(List<IMeshBuilder<MaterialBuilder>> meshBuilders, RmvToGltfExporterSettings settings, ModelRoot outputScene)
++        void BuildGltfScene(RmvFile rmv2, List<IMeshBuilder<MaterialBuilder>> meshBuilders, RmvToGltfExporterSettings settings, ModelRoot outputScene)
+         {
+             var scene = outputScene.UseScene("default");
+-            foreach (var meshBuilder in meshBuilders)
++            var sourceMeshes = rmv2.ModelList.First();
++            if (sourceMeshes.Length != meshBuilders.Count)
++                throw new InvalidDataException($"RMV2/glTF mesh count mismatch: {sourceMeshes.Length} source meshes, {meshBuilders.Count} glTF meshes");
++
++            for (var meshIndex = 0; meshIndex < meshBuilders.Count; meshIndex++)
+             {
++                var meshBuilder = meshBuilders[meshIndex];
+                 var mesh = outputScene.CreateMesh(meshBuilder);
+-                scene.CreateNode(mesh.Name).WithMesh(mesh);
++                var pivot = GlobalSceneTransforms.FlipVector(sourceMeshes[meshIndex].Material.PivotPoint, settings.MirrorMesh);
++                scene.CreateNode(mesh.Name)
++                    .WithLocalTranslation(VecConv.GetSys(pivot))
++                    .WithMesh(mesh);
+             }
+
+             _gltfSaver.Save(outputScene, settings.OutputPath);
