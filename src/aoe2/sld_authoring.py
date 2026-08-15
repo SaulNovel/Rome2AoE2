@@ -151,7 +151,19 @@ def build_shadow_layer(image: Image.Image) -> SLDLayer:
             if not any(value > 0 for row in tile for value in row): continue
             drawn.append((((y-y1)//4)*columns + (x-x1)//4, encode_bc4_block(tile)))
     commands, blocks = commands_for_positions(drawn)
-    return SLDLayer(LAYER_SHADOW, x1, y1, x2, y2, commands=commands, blocks=blocks)
+    # Official DE shadow layers consume their complete declared block grid,
+    # including a trailing transparent run.  They also set both layer control
+    # bytes to 1.  The runtime accepts looser streams for main colour, but can
+    # silently ignore a shadow layer that omits these shadow-specific values.
+    remaining = columns * ((y2 - y1) // 4) - sum(skip + draw for skip, draw in commands)
+    while remaining:
+        skip = min(remaining, 255)
+        commands.append((skip, 0))
+        remaining -= skip
+    return SLDLayer(
+        LAYER_SHADOW, x1, y1, x2, y2,
+        flag1=1, unknown1=1, commands=commands, blocks=blocks,
+    )
 
 
 def build_playercolor_layer(image: Image.Image, main_layer: SLDLayer) -> SLDLayer:

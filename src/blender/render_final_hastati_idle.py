@@ -20,11 +20,13 @@ from mathutils import Vector
 ROOT = Path(__file__).resolve().parents[2]
 INTEGRATION = ROOT / "build/community_tool_investigation/asset-editor-runtime-integration"
 sys.path.insert(0, str(INTEGRATION))
+sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "src/blender"))
 sys.path.insert(0, str(ROOT / "src/rome2"))
 import render_integration as accepted
 import render_hastati_runtime_parity as runtime
 from downsample_rgba import downsample_rgba
+from aoe2.facet_mapping import soldier_yaw_degrees
 
 RAW = (
     "basis_normal", "basis_tangent", "basis_bitangent", "diffuse_raw",
@@ -33,6 +35,8 @@ RAW = (
 )
 DIRECTION_ANGLES = [45.0, 22.5, 0.0, 337.5, 315.0, 292.5, 270.0, 247.5,
                     225.0, 202.5, 180.0, 157.5, 135.0, 112.5, 90.0, 67.5]
+REFERENCE_DIRECTION = 13
+REFERENCE_CAMERA_AZIMUTH = DIRECTION_ANGLES[REFERENCE_DIRECTION]
 
 
 def arguments():
@@ -64,6 +68,28 @@ def set_camera(scene, center, span, azimuth_degrees, orthographic_scale=None):
     camera.data.ortho_scale = orthographic_scale if orthographic_scale is not None else span * 1.20
     camera.rotation_euler = (center - camera.location).to_track_quat("-Z", "Y").to_euler()
     bpy.context.view_layer.update()
+
+
+def create_unit_root(armature, meshes):
+    """Parent the complete assembled hierarchy to one origin-pivoted root."""
+    members = {armature, *meshes}
+    top_level = []
+    for member in members:
+        ancestor = member.parent
+        while ancestor is not None and ancestor in members:
+            ancestor = ancestor.parent
+        if ancestor is None and member.parent not in members:
+            top_level.append(member)
+    root = bpy.data.objects.new("Rome2AoE2_ProductionUnitRoot", None)
+    root.empty_display_type = "PLAIN_AXES"
+    root.location = (0.0, 0.0, 0.0)
+    bpy.context.scene.collection.objects.link(root)
+    for member in sorted(set(top_level), key=lambda item: item.name):
+        world = member.matrix_world.copy()
+        member.parent = root
+        member.matrix_world = world
+    bpy.context.view_layer.update()
+    return root, sorted(item.name for item in set(top_level))
 
 
 def reduce_image(source_path, destination, size):
@@ -106,6 +132,11 @@ def main():
     # rotating the camera cannot introduce direction-dependent lateral framing.
     center = Vector((0.0, 0.0, (low.z + high.z) / 2.0))
     span = max(high - low)
+    unit_root, rooted_objects = create_unit_root(armature, meshes)
+    set_camera(scene, center, span, REFERENCE_CAMERA_AZIMUTH, args.orthographic_scale)
+    projected = world_to_camera_view(scene, scene.camera, Vector((0, 0, 0)))
+    master_hotspot = [round(projected.x * args.master_size),
+                      round((1.0 - projected.y) * args.master_size)]
     master = args.master_size
     scene.render.resolution_x = scene.render.resolution_y = master
     runtime.RESOLUTION = master
@@ -127,9 +158,9 @@ def main():
     hotspots = {}
     for direction_index in directions:
         angle = DIRECTION_ANGLES[direction_index]
-        set_camera(scene, center, span, angle, args.orthographic_scale)
-        projected = world_to_camera_view(scene, scene.camera, Vector((0, 0, 0)))
-        master_hotspot = [round(projected.x * master), round((1.0 - projected.y) * master)]
+        unit_yaw = soldier_yaw_degrees(direction_index)
+        unit_root.rotation_euler[2] = math.radians(unit_yaw)
+        bpy.context.view_layer.update()
         x1_hotspot = [int(math.floor(value * 200 / master + 0.5)) for value in master_hotspot]
         hotspots[str(direction_index)] = {
             "master": master_hotspot,
@@ -157,6 +188,7 @@ def main():
                 raise RuntimeError(f"empty output {direction_index}/{frame}")
             output.append({
                 "direction": direction_index, "azimuth_degrees": angle,
+                "unit_yaw_degrees": unit_yaw,
                 "output_frame": ordinal, "blender_frame": frame,
                 "x1": str(x1_path), "x2": str(x2_path),
                 "x1_bounds": x1_bounds, "x2_bounds": x2_bounds,
@@ -172,10 +204,19 @@ def main():
         "directions": directions, "direction_angles": [DIRECTION_ANGLES[i] for i in directions],
         "frames_per_direction": len(frames), "master_canvas": [master, master],
         "x1_canvas": [200, 200], "x2_canvas": [400, 400], "hotspots": hotspots,
+        "direction_policy": "fixed camera/light/environment; rotate production unit root only",
+        "facet_yaw_formula": "yaw(i) = (292.5 - 22.5*i) mod 360",
+        "unit_root": {"name": unit_root.name, "pivot": [0.0, 0.0, 0.0],
+                      "top_level_members": rooted_objects},
         "camera": {"projection": "orthographic", "elevation_degrees": 18.0,
+                   "fixed_azimuth_degrees": REFERENCE_CAMERA_AZIMUTH,
+                   "location": list(scene.camera.location),
+                   "rotation_euler_radians": list(scene.camera.rotation_euler),
                    "orthographic_scale": args.orthographic_scale if args.orthographic_scale is not None else span * 1.20,
                    "scale_source": "explicit" if args.orthographic_scale is not None else "accepted span*1.20 default",
                    "target": list(center)},
+        "lighting": {"policy": "fixed recovered Rome II sun/environment",
+                     "environment_yaw_degrees": 0.0},
         "downsampling": {"x1": f"{master}->200 direct premultiplied-alpha bicubic", "x2": f"{master}->400 direct premultiplied-alpha bicubic",
                          "x2_upscaled_from_x1": False},
         "records": output,

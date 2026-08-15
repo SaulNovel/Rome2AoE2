@@ -123,6 +123,10 @@ class AuthoringTests(unittest.TestCase):
         layer=parsed.frames[0].layers[0]
         source=(95,90); stored=(source[0]-layer.offset_x1+layer.offset_x1,source[1]-layer.offset_y1+layer.offset_y1)
         self.assertEqual((source[0]-100,source[1]-100),(stored[0]-100,stored[1]-100))
+        shadow_layer=parsed.frames[0].layers[1]
+        self.assertEqual((1,1),(shadow_layer.flag1,shadow_layer.unknown1))
+        shadow_grid=((shadow_layer.offset_x2-shadow_layer.offset_x1+3)//4)*((shadow_layer.offset_y2-shadow_layer.offset_y1+3)//4)
+        self.assertEqual(shadow_grid,sum(skip+draw for skip,draw in shadow_layer.commands))
 
     def test_manifest_determinism_and_no_absolute_paths(self):
         image=Image.new("RGBA",(4,4),(1,2,3,255)); sld=author_one_frame(image,image,(2,2))
