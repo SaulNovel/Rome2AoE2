@@ -223,6 +223,30 @@ def author_direction_frames(frames: list[tuple[Image.Image, Image.Image | None, 
     return SLDFile(frames=result, facet_count=facet_count)
 
 
+def author_facet_animation(
+    frames: list[tuple[Image.Image, Image.Image | None, Image.Image | None]],
+    hotspot: tuple[int, int],
+    facet_count: int,
+    frames_per_facet: int,
+    threshold: int = ALPHA_THRESHOLD,
+    encoder_factory: Callable[[], Callable] | None = None,
+) -> SLDFile:
+    """Author facet-major animation frames without mirroring or recentering."""
+    if facet_count < 1 or frames_per_facet < 1:
+        raise ValueError("facet and animation frame counts must be positive")
+    if len(frames) != facet_count * frames_per_facet:
+        raise ValueError("animation frame count does not match facets x frames-per-facet")
+    result = []
+    for index, (main, shadow, player_color) in enumerate(frames):
+        encoder = encoder_factory() if encoder_factory else encode_bc1_block
+        frame = author_one_frame(
+            main, shadow, hotspot, player_color, threshold, encoder
+        ).frames[0]
+        frame.frame_index = index
+        result.append(frame)
+    return SLDFile(frames=result, facet_count=facet_count)
+
+
 def premultiplied_bicubic(image: Image.Image, size: tuple[int, int], alpha_scale: float = 1.0) -> Image.Image:
     """Use the calibrated alpha-correct downsampler without changing its policy."""
     from src.blender.downsample_rgba import downsample_rgba

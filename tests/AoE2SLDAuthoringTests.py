@@ -11,7 +11,7 @@ from PIL import Image
 from src.aoe2.sld_blocks import ALPHA_THRESHOLD, decode_bc1_block, decode_bc4_block, encode_bc1_block, transparent_bc1_block
 from src.aoe2.sld import LAYER_MAIN, LAYER_SHADOW, LAYER_PLAYERCOLOR, SLDFile, SLDFrame, SLDLayer, parse_sld, serialize_sld
 from src.aoe2.sld_authoring import (alpha_bounds, author_one_frame, bleed_transparent_rgb, block_bounds,
-    author_identical_facets, author_direction_frames, build_main_layer, build_manifest,
+    author_identical_facets, author_direction_frames, author_facet_animation, build_main_layer, build_manifest,
     build_playercolor_layer, commands_for_positions, premultiplied_bicubic)
 from src.aoe2.build_sld_visual_calibration import scale_about_hotspot
 from src.aoe2.build_sld_runtime_diagnostics import synthetic_rgb_control
@@ -78,6 +78,19 @@ class AuthoringTests(unittest.TestCase):
         for value in (20,60,100,140): frames.append((Image.new("RGBA",(4,4),(value,0,0,255)),None,None))
         sld=author_direction_frames(frames,(2,2),4)
         self.assertEqual([0,1,2,3],[frame.frame_index for frame in sld.frames])
+
+    def test_facet_animation_is_linear_facet_major_and_main_only(self):
+        frames=[]
+        for facet in range(2):
+            for animation_frame in range(3):
+                value=facet*50+animation_frame
+                frames.append((Image.new("RGBA",(4,4),(value,0,0,255)),None,None))
+        sld=author_facet_animation(frames,(2,2),facet_count=2,frames_per_facet=3)
+        self.assertEqual(2,sld.facet_count)
+        self.assertEqual(list(range(6)),[frame.frame_index for frame in sld.frames])
+        self.assertTrue(all(frame.frame_type==LAYER_MAIN for frame in sld.frames))
+        with self.assertRaisesRegex(ValueError,"facets x frames"):
+            author_facet_animation(frames[:-1],(2,2),facet_count=2,frames_per_facet=3)
 
     def test_scale_preserves_hotspot_vector_and_target_height(self):
         image=Image.new("RGBA",(40,40));

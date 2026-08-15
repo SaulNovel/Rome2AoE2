@@ -8,6 +8,7 @@ import argparse
 import gc
 import json
 import math
+import os
 import sys
 from pathlib import Path
 
@@ -109,7 +110,9 @@ def main():
     scene.render.resolution_x = scene.render.resolution_y = master
     runtime.RESOLUTION = master
     runtime.OUT = args.output_dir / "master"
-    runtime.AOV = args.output_dir / "aov-working"
+    # AOVs are disposable, but each background Blender worker must own its
+    # directory so parallel direction batches cannot truncate one another.
+    runtime.AOV = args.output_dir / "aov-working" / str(os.getpid())
     runtime.OUT.mkdir(parents=True, exist_ok=True)
     runtime.AOV.mkdir(parents=True, exist_ok=True)
     x1_dir = args.output_dir / "x1"
