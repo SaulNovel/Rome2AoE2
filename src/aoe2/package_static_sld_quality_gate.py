@@ -11,9 +11,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "third_party" / "python-deps"))
+sys.path.insert(0, str(ROOT / "third_party" / "AoE2ScenarioParser"))
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 from aoe2_genie_tooling import GenieWorkspace
+from AoE2ScenarioParser.scenarios.aoe2_de_scenario import AoE2DEScenario
 
 
 def digest(path: Path) -> str:
@@ -29,7 +31,7 @@ def main() -> int:
     parser.add_argument("--output-root", required=True)
     args = parser.parse_args()
     output = Path(args.output_root)
-    mod = output / "Rome2AoE2 Static Hastati SLD Main Gate"
+    mod = output / "Rome2AoE2 Hastati Dev Test"
     graphics = mod / "resources" / "_common" / "drs" / "graphics"
     dat_path = mod / "resources" / "_common" / "dat" / "empires2_x2_p1.dat"
     graphics.mkdir(parents=True, exist_ok=True)
@@ -59,11 +61,14 @@ def main() -> int:
         destination = graphics / f"rome2aoe2_hastati_test_{zoom}.sld"
         shutil.copy2(source, destination)
         destinations.append({"zoom": zoom, "path": str(destination), "sha256": digest(destination)})
-    scenario = output / "Rome2AoE2StaticHastatiSLDMainGate.aoe2scenario"
-    shutil.copy2(Path(args.source_scenario), scenario)
+    scenario = output / "Rome2AoE2HastatiDevTest.aoe2scenario"
+    document = AoE2DEScenario.from_file(str(Path(args.source_scenario)))
+    document.unit_manager.add_unit(player=1, unit_const=74, x=8, y=10, rotation=0)
+    document.unit_manager.add_unit(player=1, unit_const=2081, x=14, y=10, rotation=0)
+    document.write_to_file(str(scenario))
     (mod / "info.json").write_text(json.dumps({
         "Author": "Rome2AoE2", "CacheStatus": 0,
-        "Title": "Rome2AoE2 Static Hastati SLD Main Gate",
+        "Title": "Rome2AoE2 Hastati Dev Test",
         "Description": "One frozen accepted frame; native main-colour-only SLD x1/x2 transport gate.",
     }, indent=2) + "\n", encoding="utf-8")
     report = {

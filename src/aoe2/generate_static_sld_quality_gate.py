@@ -131,14 +131,16 @@ def main() -> int:
     parser.add_argument("--source-x2", required=True)
     parser.add_argument("--texconv", required=True)
     parser.add_argument("--output-root", required=True)
+    parser.add_argument("--hotspot-x1", nargs=2, type=int, default=(100, 174), metavar=("X", "Y"))
+    parser.add_argument("--hotspot-x2", nargs=2, type=int, default=(200, 349), metavar=("X", "Y"))
     args = parser.parse_args()
     root = Path(args.output_root)
     root.mkdir(parents=True, exist_ok=True)
     records = {
         "x1": build_one(Path(args.source_x1), root / "source-x1.png", root / "hastati-test_x1.sld",
-                        root / "decoded-x1.png", (100, 174), Path(args.texconv)),
+                        root / "decoded-x1.png", tuple(args.hotspot_x1), Path(args.texconv)),
         "x2": build_one(Path(args.source_x2), root / "source-x2.png", root / "hastati-test_x2.sld",
-                        root / "decoded-x2.png", (200, 349), Path(args.texconv)),
+                        root / "decoded-x2.png", tuple(args.hotspot_x2), Path(args.texconv)),
     }
     contact_sheet([
         ("accepted source x1 (2x view)", Image.open(root / "source-x1.png")),
