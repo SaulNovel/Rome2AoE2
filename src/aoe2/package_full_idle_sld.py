@@ -40,11 +40,23 @@ def main() -> int:
     workspace = GenieWorkspace.load(Path(args.source_dat))
     militia = workspace.unit_manager.get(74)
     militia_state = (militia.name, militia.standing_sprite_id1, militia.standing_sprite_id2)
+    # Animation playback, direction selection, render layer and click-testing
+    # live on the DAT graphic, independently of the SLD frame payload.  Inherit
+    # those controls from the known-working Militia idle instead of accepting
+    # add_graphic's intentionally neutral defaults.
+    reference_graphic = workspace.dat.sprites[militia.standing_sprite_id1]
     clone = workspace.unit_manager.clone_into(2081, 74, on_conflict="error", fill_gaps="placeholder")
     clone.name = "Rome II Hastati full idle SLD"
     graphic = workspace.graphic_manager.add_graphic(
         "rome2aoe2_hastati_test", name="Hastati full idle SLD main-only",
         frame_count=67, angle_count=16, frame_duration=1 / 24,
+        old_color_flag=reference_graphic.force_player_color,
+        layer=reference_graphic.layer,
+        force_player_color=reference_graphic.color_table,
+        transparent_selection=reference_graphic.transparent_selection,
+        replay_delay=reference_graphic.replay_delay,
+        sequence_type=reference_graphic.sequence_type,
+        mirroring_mode=reference_graphic.mirroring_mode,
     )
     clone.standing_sprite_id1 = clone.standing_sprite_id2 = graphic.id
     workspace.save(dat_path)
@@ -58,6 +70,14 @@ def main() -> int:
         raise RuntimeError("packaging lost full-idle frame/facet metadata")
     if abs(written_graphic.frame_duration - 1 / 24) > 1e-7:
         raise RuntimeError("packaging lost 24 FPS timing")
+    written_raw = written.dat.sprites[written_graphic.id]
+    inherited = (
+        "force_player_color", "layer", "color_table", "transparent_selection",
+        "replay_delay", "sequence_type", "mirroring_mode",
+    )
+    for field in inherited:
+        if getattr(written_raw, field) != getattr(reference_graphic, field):
+            raise RuntimeError(f"packaging lost inherited graphic field {field}")
 
     assets = []
     for zoom, source in (("x1", Path(args.sld_x1)), ("x2", Path(args.sld_x2))):
@@ -79,6 +99,9 @@ def main() -> int:
         "unit_id": 2081, "graphic_id": graphic.id, "graphic_stem": "rome2aoe2_hastati_test",
         "frame_count": 67, "facet_count": 16, "total_sld_frames": 1072,
         "frame_duration_seconds": 1 / 24, "main_colour_only": True,
+        "inherited_runtime_graphic_fields": {
+            field: getattr(written_raw, field) for field in inherited
+        },
         "mod": str(mod), "dat": str(dat_path), "scenario": str(scenario), "assets": assets,
     }
     (output / "package-report.json").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
