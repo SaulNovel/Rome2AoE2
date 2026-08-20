@@ -18,12 +18,10 @@ from bpy_extras.object_utils import world_to_camera_view
 from mathutils import Vector
 
 ROOT = Path(__file__).resolve().parents[2]
-INTEGRATION = ROOT / "build/community_tool_investigation/asset-editor-runtime-integration"
-sys.path.insert(0, str(INTEGRATION))
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "src/blender"))
 sys.path.insert(0, str(ROOT / "src/rome2"))
-import render_integration as accepted
+import hastati_runtime_scene as accepted
 import render_hastati_runtime_parity as runtime
 from downsample_rgba import downsample_rgba
 from aoe2.facet_mapping import soldier_yaw_degrees
@@ -48,6 +46,12 @@ def arguments():
     parser.add_argument("--master-size", type=int, default=800)
     parser.add_argument("--orthographic-scale", type=float,
                         help="Fixed absolute camera scale; defaults to the accepted span*1.20 framing")
+    parser.add_argument("--input-blend", type=Path,
+                        help="Override the frozen assembled production blend without changing the renderer")
+    parser.add_argument("--animation-name", default="idle",
+                        help="Stable filename/report label (idle, walk, attack)")
+    parser.add_argument("--camera-target-z", type=float,
+                        help="Freeze the production camera target while isolating components")
     return parser.parse_args(sys.argv[sys.argv.index("--") + 1:])
 
 
@@ -72,6 +76,12 @@ def set_camera(scene, center, span, azimuth_degrees, orthographic_scale=None):
 
 def create_unit_root(armature, meshes):
     """Parent the complete assembled hierarchy to one origin-pivoted root."""
+    facet_root = bpy.data.objects.get("Rome2AoE2_FacetRoot")
+    if facet_root is not None:
+        # Native production scenes already provide the approved hierarchy:
+        # FacetRoot -> LocomotionCenter -> complete animated unit.  Reparenting
+        # the armature here would bypass external locomotion centering.
+        return facet_root, [child.name for child in facet_root.children]
     members = {armature, *meshes}
     top_level = []
     for member in members:
@@ -90,6 +100,20 @@ def create_unit_root(armature, meshes):
         member.matrix_world = world
     bpy.context.view_layer.update()
     return root, sorted(item.name for item in set(top_level))
+
+
+def action_keyframes(action):
+    curves = list(action.fcurves) if hasattr(action, "fcurves") else [
+        curve for layer in action.layers for strip in layer.strips
+        for bag in strip.channelbags for curve in bag.fcurves
+    ]
+    return sorted({float(point.co[0]) for curve in curves for point in curve.keyframe_points})
+
+
+def set_fractional_frame(scene, frame):
+    whole = int(frame)
+    scene.frame_set(whole, subframe=frame - whole)
+    bpy.context.view_layer.update()
 
 
 def reduce_image(source_path, destination, size):
@@ -121,6 +145,8 @@ def alpha_bounds(path):
 
 def main():
     args = arguments()
+    if args.input_blend is not None:
+        accepted.BLEND = args.input_blend.resolve()
     scene, armature, action, reference_frame, meshes = accepted.configure()
     records = accepted.material_records()
     for material in bpy.data.materials:
@@ -130,7 +156,8 @@ def main():
     low, high = accepted.bounds(meshes)
     # Freeze one animation-wide target and scale.  XY remains the unit origin so
     # rotating the camera cannot introduce direction-dependent lateral framing.
-    center = Vector((0.0, 0.0, (low.z + high.z) / 2.0))
+    target_z = args.camera_target_z if args.camera_target_z is not None else (low.z + high.z) / 2.0
+    center = Vector((0.0, 0.0, target_z))
     span = max(high - low)
     unit_root, rooted_objects = create_unit_root(armature, meshes)
     set_camera(scene, center, span, REFERENCE_CAMERA_AZIMUTH, args.orthographic_scale)
@@ -152,7 +179,8 @@ def main():
     x2_dir.mkdir(parents=True, exist_ok=True)
     frame_start = int(action.frame_range[0])
     frame_end = int(round(action.frame_range[1]))
-    frames = parse_selection(args.frames, range(frame_start, frame_end + 1))
+    frames = (action_keyframes(action) if args.frames == "native-keys" else
+              parse_selection(args.frames, range(frame_start, frame_end + 1)))
     directions = parse_selection(args.directions, range(16))
     output = []
     hotspots = {}
@@ -168,14 +196,16 @@ def main():
             "x2": [value * 2 for value in x1_hotspot],
         }
         for ordinal, frame in enumerate(frames):
-            scene.frame_set(frame)
-            stem = f"idle-direction-{direction_index:02d}-frame-{ordinal:03d}"
+            set_fractional_frame(scene, frame)
+            stem = f"{args.animation_name}-direction-{direction_index:02d}-frame-{ordinal:03d}"
             master_path = runtime.OUT / f"{stem}.png"
             x1_path = x1_dir / f"{stem}.png"
             x2_path = x2_dir / f"{stem}.png"
             if not (x1_path.is_file() and x2_path.is_file()):
                 arrays = {name: runtime.render_aov(scene, accepted.TEXROOT, name) for name in RAW}
-                runtime.shade(scene, arrays, output_name=master_path.name, diagnostics=False)
+                runtime.shade(
+                    scene, arrays, output_name=master_path.name, diagnostics=False,
+                )
                 reduce_image(master_path, x2_path, 400)
                 reduce_image(master_path, x1_path, 200)
                 del arrays
@@ -196,9 +226,10 @@ def main():
             print(json.dumps({"direction": direction_index, "frame": frame,
                               "progress": f"{len(output)}/{len(directions) * len(frames)}"}))
     document = {
-        "format": "rome2aoe2.final-hastati-idle-render", "version": 1,
+        "format": "rome2aoe2.final-hastati-animation-render", "version": 1,
+        "animation_name": args.animation_name,
         "renderer": "accepted Raw AOV rasterization -> runtime_material_preparation -> frozen Rome II runtime lighting/display backend",
-        "accepted_driver": str(INTEGRATION / "render_integration.py"),
+        "accepted_driver": str(Path(accepted.__file__).resolve()),
         "source_blend": str(accepted.BLEND), "action": action.name,
         "action_frame_range": list(action.frame_range), "fps": scene.render.fps,
         "directions": directions, "direction_angles": [DIRECTION_ANGLES[i] for i in directions],

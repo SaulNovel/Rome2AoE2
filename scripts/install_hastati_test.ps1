@@ -26,7 +26,11 @@ $requiredRelative = @(
     'info.json',
     'resources\_common\dat\empires2_x2_p1.dat',
     'resources\_common\drs\graphics\rome2aoe2_hastati_test_x1.sld',
-    'resources\_common\drs\graphics\rome2aoe2_hastati_test_x2.sld'
+    'resources\_common\drs\graphics\rome2aoe2_hastati_test_x2.sld',
+    'resources\_common\drs\graphics\rome2aoe2_hastati_walk_x1.sld',
+    'resources\_common\drs\graphics\rome2aoe2_hastati_walk_x2.sld',
+    'resources\_common\drs\graphics\rome2aoe2_hastati_attack_x1.sld',
+    'resources\_common\drs\graphics\rome2aoe2_hastati_attack_x2.sld'
 )
 foreach ($relative in $requiredRelative) {
     if (-not (Test-Path -LiteralPath (Join-Path $sourceMod $relative) -PathType Leaf)) {

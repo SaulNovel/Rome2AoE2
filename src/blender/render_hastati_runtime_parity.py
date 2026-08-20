@@ -19,7 +19,8 @@ sys.path.insert(0, str(ROOT / "src/blender"))
 sys.path.insert(0, str(ROOT / "src/rome2"))
 import render_cross_unit_set_a as cu
 from runtime_material_preparation import (prepare_decal_dirtmap,
-    prepare_weighted, prepare_weighted_dirtmap, prepare_weighted_skin_dirtmap)
+    prepare_weighted, prepare_weighted_dirtmap, prepare_weighted_skin_dirtmap,
+    shield_faction_colours)
 
 OUT = ROOT / "build/local-integration/rome2/runtime-parity-proof"
 AOV = OUT / "aov"
@@ -32,6 +33,7 @@ FACTION = (
     (1.0, 0.470440269, 0.000107187),
     (0.325036973, 0.042987015, 0.013473397),
 )
+SHIELD_FACTION = shield_faction_colours(FACTION)
 SUN_DIRECTION_R2 = np.array((0.752204835, -0.368124515, 0.546509087), np.float32)
 SUN_COLOUR = np.array((4744.829102, 4335.678711, 3330.588623), np.float32)
 AMBIENT = np.array((
@@ -248,7 +250,7 @@ def shade(scene, arrays, environment_yaw_degrees=0, output_name="runtime-parity-
     if np.any(skin_pixels):
         q=skin_pixels;assign(q,prepare_weighted_skin_dirtmap(diffuse_aov[q],arrays["normal_sample"][q],arrays["gloss_raw"][q],arrays["dirt_mask_raw"][q],arrays["dirt_raw"][q],arrays["specular_raw"][q],base[q],tangent[q],bitangent[q]))
     if np.any(decal_pixels):
-        q=decal_pixels;assign(q,prepare_decal_dirtmap(*(x[q] for x in raw),arrays["mask_raw"][q],arrays["dirt_mask_raw"][q],arrays["dirt_raw"][q],base[q],tangent[q],bitangent[q],np.zeros((3,3),np.float32)))
+        q=decal_pixels;assign(q,prepare_decal_dirtmap(*(x[q] for x in raw),arrays["mask_raw"][q],arrays["dirt_mask_raw"][q],arrays["dirt_raw"][q],base[q],tangent[q],bitangent[q],SHIELD_FACTION))
     D=np.maximum(D,0);F=np.maximum(F,0);S=np.clip(S,0,1);R=np.clip(R,0,1)
     V=np.array(scene.camera.matrix_world.to_quaternion()@Vector((0,0,1)),np.float32); V=V/np.linalg.norm(V)
     # Exact exporter/global conversion. Captured instance rows contain only

@@ -73,6 +73,19 @@ def faction_diffuse(diffuse, mask, colours):
     return result
 
 
+def shield_faction_colours(colours):
+    """Map Rome II's early-scutum mask slots onto the unit faction palette.
+
+    The shield authoring convention swaps mask slots 1 and 2 relative to the
+    weighted body materials.  Keeping the remap explicit prevents a zero or
+    body-ordered table from neutralising the painted face before lighting.
+    """
+    colours = np.asarray(colours, np.float32)
+    if colours.shape != (3, 3):
+        raise ValueError("faction colours must contain three RGB entries")
+    return colours[[0, 2, 1]]
+
+
 def material_controls(diffuse, reflectivity, controls, specular=None):
     controls = np.asarray(controls if controls is not None else (0.0, 0.0), np.float32)
     boost, desaturate = controls[..., 0], controls[..., 1]

@@ -53,6 +53,16 @@ class SharedMaterialBackendTests(unittest.TestCase):
         np.testing.assert_allclose(wr2,np.array((.1,.2,.3,0)))
         np.testing.assert_allclose(sr2,np.array((.2,.3,.4,.4)))
 
+    def test_early_scutum_uses_shield_specific_faction_slot_order(self):
+        colours=np.array(((.39,.01,.005),(1,.47,0),(.325,.043,.013)),np.float32)
+        mapped=core.shield_faction_colours(colours)
+        np.testing.assert_array_equal(mapped,colours[[0,2,1]])
+        diffuse=np.array((.8,.7,.6,1),np.float32)
+        yellow_mask=np.array((1,1,0,1),np.float32)
+        result=core.faction_diffuse(diffuse,yellow_mask,mapped)
+        self.assertGreater(result[0],result[1]*5)
+        self.assertGreater(result[0],result[2]*5)
+
 
 if __name__ == "__main__":
     unittest.main(argv=[__file__])

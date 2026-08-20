@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import sys
 from pathlib import Path
 
@@ -13,18 +14,16 @@ import numpy as np
 from mathutils import Vector
 
 ROOT = Path(__file__).resolve().parents[2]
-INTEGRATION = ROOT / "build/community_tool_investigation/asset-editor-runtime-integration"
-sys.path.insert(0, str(INTEGRATION))
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "src/blender"))
 sys.path.insert(0, str(ROOT / "src/rome2"))
 
-import render_integration as accepted
+import hastati_runtime_scene as accepted
 import render_hastati_runtime_parity as runtime
 from downsample_rgba import downsample_rgba
 from render_final_hastati_idle import (
-    DIRECTION_ANGLES, REFERENCE_CAMERA_AZIMUTH, create_unit_root,
-    set_camera,
+    DIRECTION_ANGLES, REFERENCE_CAMERA_AZIMUTH, action_keyframes,
+    create_unit_root, set_camera, set_fractional_frame,
 )
 from aoe2.facet_mapping import soldier_yaw_degrees
 
@@ -32,9 +31,18 @@ from aoe2.facet_mapping import soldier_yaw_degrees
 def arguments():
     parser = argparse.ArgumentParser()
     parser.add_argument("--output-root", type=Path, required=True)
-    parser.add_argument("--frame", type=int, default=33)
+    parser.add_argument("--frame", type=float, default=33)
+    parser.add_argument("--frames", default=None,
+                        help="Comma-separated Blender frames; defaults to --frame")
+    parser.add_argument("--directions", default="all")
+    parser.add_argument("--input-blend", type=Path)
+    parser.add_argument("--animation-name", default="idle")
     parser.add_argument("--master-size", type=int, default=800)
     parser.add_argument("--orthographic-scale", type=float, default=7.27480212108078)
+    parser.add_argument("--camera-target-z", type=float,
+                        help="Freeze the approved production camera target")
+    parser.add_argument("--report", type=Path,
+                        help="Per-worker report path; defaults inside output root")
     return parser.parse_args(sys.argv[sys.argv.index("--") + 1:])
 
 
@@ -122,15 +130,24 @@ def main() -> int:
     if not args.output_root.is_absolute():
         args.output_root = (ROOT / args.output_root).resolve()
     args.output_root.mkdir(parents=True, exist_ok=True)
-    scene, armature, _action, _reference_frame, meshes = accepted.configure()
-    scene.frame_set(args.frame)
+    if args.input_blend is not None:
+        accepted.BLEND = args.input_blend.resolve()
+    scene, armature, action, _reference_frame, meshes = accepted.configure()
+    frames = (action_keyframes(action) if args.frames == "native-keys" else
+              ([float(value) for value in args.frames.split(",")]
+               if args.frames else [args.frame]))
+    directions = (list(range(16)) if args.directions == "all" else
+                  [int(value) for value in args.directions.split(",")])
+    set_fractional_frame(scene, frames[0])
     low, high = accepted.bounds(meshes)
-    center = Vector((0.0, 0.0, (low.z + high.z) / 2.0))
+    target_z = args.camera_target_z if args.camera_target_z is not None else (low.z + high.z) / 2.0
+    center = Vector((0.0, 0.0, target_z))
     span = max(high - low)
     root, rooted = create_unit_root(armature, meshes)
     set_camera(scene, center, span, REFERENCE_CAMERA_AZIMUTH, args.orthographic_scale)
     _plane, recovered_light_direction, light_direction = configure_shadow_scene(scene, meshes, args.master_size)
-    scene.render.filepath = str(args.output_root / "raw.png")
+    # Parallel facet batches must never share the disposable Cycles buffer.
+    scene.render.filepath = str(args.output_root / f"raw-{os.getpid()}.png")
 
     for mesh in meshes:
         mesh.visible_shadow = False
@@ -141,36 +158,40 @@ def main() -> int:
         mesh.visible_shadow = True
 
     records = []
-    for direction in range(16):
+    for direction in directions:
         yaw = soldier_yaw_degrees(direction)
         root.rotation_euler[2] = math.radians(yaw)
         bpy.context.view_layer.update()
-        bpy.ops.render.render(write_still=True)
-        shaded = image_array(Path(scene.render.filepath))
-        luminance = shaded[..., :3] @ np.array((0.2126, 0.7152, 0.0722), np.float32)
-        relative = np.maximum(0, baseline_luminance - luminance) / np.maximum(baseline_luminance, 1e-5)
-        alpha = np.clip(relative / 0.72, 0, 1) * 0.38
-        alpha[alpha < 0.025] = 0
-        rgba = np.zeros((*alpha.shape, 4), np.float32)
-        rgba[..., 3] = alpha
-        stem = f"idle-direction-{direction:02d}-frame-000.png"
-        master_path = args.output_root / "master" / stem
-        x1_path = args.output_root / "x1" / stem
-        x2_path = args.output_root / "x2" / stem
-        save_rgba(master_path, rgba)
-        save_rgba(x2_path, downsample(rgba, 400))
-        save_rgba(x1_path, downsample(rgba, 200))
-        visible = np.argwhere(alpha >= 1 / 255)
-        bounds = None if not len(visible) else [
-            int(visible[:, 1].min()), int(visible[:, 0].min()),
-            int(visible[:, 1].max()) + 1, int(visible[:, 0].max()) + 1,
-        ]
-        records.append({"facet": direction, "unit_yaw_degrees": yaw, "bounds_master": bounds,
-                        "maximum_opacity": float(alpha.max())})
-        print(json.dumps(records[-1]))
+        for ordinal, frame in enumerate(frames):
+            set_fractional_frame(scene, frame)
+            bpy.ops.render.render(write_still=True)
+            shaded = image_array(Path(scene.render.filepath))
+            luminance = shaded[..., :3] @ np.array((0.2126, 0.7152, 0.0722), np.float32)
+            relative = np.maximum(0, baseline_luminance - luminance) / np.maximum(baseline_luminance, 1e-5)
+            alpha = np.clip(relative / 0.72, 0, 1) * 0.38
+            alpha[alpha < 0.025] = 0
+            rgba = np.zeros((*alpha.shape, 4), np.float32)
+            rgba[..., 3] = alpha
+            stem = f"{args.animation_name}-direction-{direction:02d}-frame-{ordinal:03d}.png"
+            master_path = args.output_root / "master" / stem
+            x1_path = args.output_root / "x1" / stem
+            x2_path = args.output_root / "x2" / stem
+            save_rgba(master_path, rgba)
+            save_rgba(x2_path, downsample(rgba, 400))
+            save_rgba(x1_path, downsample(rgba, 200))
+            visible = np.argwhere(alpha >= 1 / 255)
+            bounds = None if not len(visible) else [
+                int(visible[:, 1].min()), int(visible[:, 0].min()),
+                int(visible[:, 1].max()) + 1, int(visible[:, 0].max()) + 1,
+            ]
+            records.append({"facet": direction, "frame": frame, "output_frame": ordinal,
+                            "unit_yaw_degrees": yaw, "bounds_master": bounds,
+                            "maximum_opacity": float(alpha.max())})
+            print(json.dumps(records[-1]))
     report = {
         "format": "rome2aoe2.hastati-shadow-proof", "version": 1,
-        "frame": args.frame, "facets": 16,
+        "animation_name": args.animation_name, "frames": frames,
+        "facets": len(directions), "directions": directions,
         "policy": "fixed camera/light/environment/ground; rotate complete unit root only",
         "camera": {"azimuth_degrees": REFERENCE_CAMERA_AZIMUTH, "elevation_degrees": 18.0,
                    "orthographic_scale": args.orthographic_scale,
@@ -187,7 +208,9 @@ def main() -> int:
         "records": records,
     }
     args.output_root.mkdir(parents=True, exist_ok=True)
-    (args.output_root / "shadow-render-report.json").write_text(
+    report_path = args.report or (args.output_root / "shadow-render-report.json")
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text(
         json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
     return 0
