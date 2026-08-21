@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from collections import Counter, defaultdict
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -10,7 +11,8 @@ from .models import AnimationProfile, ComponentOption, ComponentSlot, Faction, R
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_EVIDENCE = ROOT / "build/local-integration/rome2/runtime-resolution/effective-units.json"
+DEFAULT_CACHE = ROOT / "build/cache/rome2aoe2/catalog-v1.json"
+DEFAULT_EFFECTIVE_EVIDENCE = ROOT / "build/local-integration/rome2/runtime-resolution/effective-units.json"
 
 
 def _category(slot: dict[str, Any]) -> str:
@@ -45,16 +47,55 @@ def _asset_metadata(source_root: Path) -> dict[str, dict[str, Any]]:
 
 
 class Catalog:
-    def __init__(self, evidence: dict[str, Any]):
-        rows = evidence.get("units", [])
-        self._rows = {row["request"]["main_unit"]: row for row in rows}
-        grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
-        for row in rows:
-            grouped[row["request"]["faction"]].append(row)
-        self.factions = tuple(self._build_factions(grouped))
-        self._units = {
-            unit.main_unit: unit for faction in self.factions for unit in faction.units
+    def __init__(self, evidence: dict[str, Any], effective_evidence: dict[str, Any] | None = None):
+        self.source_index = evidence
+        self._effective_rows = {
+            row["request"]["main_unit"]: row for row in (effective_evidence or {}).get("units", [])
         }
+        if evidence.get("format") == "rome2aoe2.source-catalog":
+            units = {row["main_unit"]: row for row in evidence["units"]}
+            self.factions = tuple(self._source_factions(evidence["factions"], units))
+        else:
+            rows = evidence.get("units", [])
+            self._effective_rows = {row["request"]["main_unit"]: row for row in rows}
+            grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+            for row in rows:
+                grouped[row["request"]["faction"]].append(row)
+            self.factions = tuple(self._build_factions(grouped))
+        if self._effective_rows:
+            self.factions = tuple(self._apply_effective_status(faction) for faction in self.factions)
+        self._units = defaultdict(list)
+        for faction in self.factions:
+            for unit in faction.units:
+                self._units[unit.main_unit].append(unit)
+
+    def _apply_effective_status(self, faction: Faction) -> Faction:
+        units = []
+        for unit in faction.units:
+            if unit.main_unit in self._effective_rows and unit.status != "UNSUPPORTED":
+                remaining = tuple(code for code in unit.reason_codes if code != "MISSING_REQUIRED_ASSET")
+                units.append(replace(unit, status="READY" if not remaining else "PARTIAL", reason_codes=remaining))
+            else:
+                units.append(unit)
+        return replace(faction, units=tuple(units))
+
+    @staticmethod
+    def _source_factions(factions: list[dict[str, Any]], units: dict[str, dict[str, Any]]) -> Iterable[Faction]:
+        ordered_factions = sorted(factions, key=lambda row: (row["display_name"].casefold(), row["key"]))
+        for faction_id, row in enumerate(ordered_factions, 1):
+            source_units = sorted(
+                (units[key] for key in row["unit_keys"] if key in units),
+                key=lambda unit: (unit["display_name"].casefold(), unit["main_unit"]),
+            )
+            definitions = tuple(UnitDefinition(
+                catalog_id=index, faction_key=row["key"], display_name=unit["display_name"],
+                main_unit=unit["main_unit"], land_unit=unit["land_unit"] or "",
+                status=unit["status"], reason_codes=tuple(unit["reason_codes"]),
+                description=unit.get("description"), variants=tuple(unit["variants"]),
+                animation_family=unit.get("animation_family", ""), skeleton=unit.get("skeleton"),
+                provenance=unit.get("provenance", {}),
+            ) for index, unit in enumerate(source_units, 1))
+            yield Faction(faction_id, row["key"], row["display_name"], definitions, row.get("provenance", {}))
 
     @staticmethod
     def _build_factions(grouped: dict[str, list[dict[str, Any]]]) -> Iterable[Faction]:
@@ -67,26 +108,55 @@ class Catalog:
             )
             for row in ordered:
                 units.append(UnitDefinition(
-                    catalog_id=next_unit_id,
+                    catalog_id=len(units) + 1,
                     faction_key=faction_key,
                     display_name=row["identity"]["unit_variants"]["name"],
                     main_unit=row["request"]["main_unit"],
                 ))
-                next_unit_id += 1
             yield Faction(faction_id, faction_key, faction_key, tuple(units))
 
-    def find_unit(self, selector: str | int) -> UnitDefinition:
+    def find_faction(self, selector: str | int) -> Faction:
         text = str(selector).strip()
-        for unit in self._units.values():
+        for faction in self.factions:
+            if text == str(faction.catalog_id) or text.casefold() in {faction.key.casefold(), faction.display_name.casefold()}:
+                return faction
+        raise ConverterError(ErrorCode.FACTION_NOT_FOUND, "No catalog faction matches the selector", selector=text)
+
+    def find_unit(self, selector: str | int, faction: Faction | str | int | None = None) -> UnitDefinition:
+        text = str(selector).strip()
+        if faction is None and text.isdigit():
+            raise ConverterError(ErrorCode.UNIT_NOT_FOUND, "Numeric unit IDs are local to a selected faction",
+                                 selector=text, faction=None)
+        pool = self.find_faction(faction).units if faction is not None and not isinstance(faction, Faction) else (
+            faction.units if isinstance(faction, Faction) else tuple(unit for f in self.factions for unit in f.units)
+        )
+        if faction is None:
+            exact = [unit for unit in pool if text.casefold() == unit.main_unit.casefold()]
+            preferred_faction = self._effective_rows.get(text, {}).get("request", {}).get("faction")
+            preferred = next((unit for unit in exact if unit.faction_key == preferred_faction), None)
+            if preferred or exact:
+                return preferred or exact[0]
+        for unit in pool:
             if text == str(unit.catalog_id) or text.casefold() in {
                 unit.main_unit.casefold(), unit.display_name.casefold()
             }:
                 return unit
-        raise ConverterError(ErrorCode.UNIT_NOT_FOUND, "No catalog unit matches the selector", selector=text)
+        raise ConverterError(ErrorCode.UNIT_NOT_FOUND, "No catalog unit matches the selector", selector=text,
+                             faction=faction.key if isinstance(faction, Faction) else faction)
 
-    def resolve(self, selector: str | int) -> ResolvedUnit:
-        definition = self.find_unit(selector)
-        row = self._rows[definition.main_unit]
+    def resolve(self, selector: str | int, faction: Faction | str | int | None = None) -> ResolvedUnit:
+        definition = self.find_unit(selector, faction)
+        row = self._effective_rows.get(definition.main_unit)
+        if row is None:
+            chosen = next((item for item in definition.variants if item.get("source_pack")),
+                          definition.variants[0] if definition.variants else None)
+            if chosen is None:
+                raise ConverterError(ErrorCode.UNRESOLVED_VMD, "Unit has no resolved VMD", unit=definition.main_unit)
+            if not definition.animation_family or not definition.skeleton:
+                raise ConverterError(ErrorCode.UNRESOLVED_ANIMATION_FAMILY,
+                                     "Unit animation metadata is incomplete", unit=definition.main_unit)
+            return ResolvedUnit(definition, definition.land_unit, chosen["variant"], chosen["path"], (),
+                                AnimationProfile(definition.skeleton, definition.animation_family), "", definition.provenance)
         identity = row["identity"]
         land = identity["land_units"]
         family = land.get("man_animation", "").strip()
@@ -164,12 +234,14 @@ class Catalog:
         )
 
 
-def load_default_catalog(path: Path | None = None) -> Catalog:
-    source = path or DEFAULT_EVIDENCE
+def load_default_catalog(path: Path | None = None, effective_path: Path | None = None) -> Catalog:
+    source = path or DEFAULT_CACHE
     if not source.is_file():
         raise ConverterError(
             ErrorCode.MISSING_SOURCE_ASSET,
-            "Catalog evidence is missing; run the existing Rome II DB/VMD resolution workflow",
+            "Derived source catalog is missing; run 'python -m rome2aoe2 catalog rebuild'",
             path=str(source),
         )
-    return Catalog(json.loads(source.read_text(encoding="utf-8")))
+    effective_source = effective_path or DEFAULT_EFFECTIVE_EVIDENCE
+    effective = json.loads(effective_source.read_text(encoding="utf-8")) if effective_source.is_file() else None
+    return Catalog(json.loads(source.read_text(encoding="utf-8")), effective)

@@ -29,11 +29,19 @@ class ConverterCatalogTests(unittest.TestCase):
         cls.hastati = cls.catalog.resolve("Rom_Hastati")
 
     def test_catalog_ids_are_deterministic_sorted_and_not_aoe_ids(self):
-        ids = [unit.catalog_id for faction in self.catalog.factions for unit in faction.units]
-        self.assertEqual(list(range(1, len(ids) + 1)), ids)
-        self.assertNotIn(2081, ids)
-        self.assertEqual(sorted(f.key.casefold() for f in self.catalog.factions),
-                         [f.key.casefold() for f in self.catalog.factions])
+        for faction in self.catalog.factions:
+            ids = [unit.catalog_id for unit in faction.units]
+            self.assertEqual(list(range(1, len(ids) + 1)), ids)
+            self.assertNotIn(2081, ids)
+        expected = sorted(
+            self.catalog.factions,
+            key=lambda faction: (faction.display_name.casefold(), faction.key.casefold()),
+        )
+        self.assertEqual([f.key for f in expected], [f.key for f in self.catalog.factions])
+        self.assertEqual(
+            list(range(1, len(self.catalog.factions) + 1)),
+            [f.catalog_id for f in self.catalog.factions],
+        )
 
     def test_hastati_resolves_actual_db_chain_and_animation(self):
         unit = self.hastati
@@ -77,7 +85,7 @@ class ConverterCatalogTests(unittest.TestCase):
     def test_interactive_invalid_ids_reprompt_cleanly(self):
         unit_input = io.StringIO("999999\nRom_Hastati\n")
         output = io.StringIO()
-        unit = choose_unit(self.catalog, unit_input, output)
+        unit = choose_unit(self.catalog, unit_input, output, self.catalog.find_faction("rom_rome"))
         self.assertEqual("Rom_Hastati", unit.definition.main_unit)
         self.assertIn("UNIT_NOT_FOUND", output.getvalue())
         required = next(slot for slot in unit.component_slots if slot.required)

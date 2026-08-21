@@ -41,6 +41,14 @@ class UnitDefinition:
     faction_key: str
     display_name: str
     main_unit: str
+    land_unit: str = ""
+    status: str = "PARTIAL"
+    reason_codes: tuple[str, ...] = ()
+    description: str | None = None
+    variants: tuple[dict[str, Any], ...] = ()
+    animation_family: str = ""
+    skeleton: str | None = None
+    provenance: dict[str, Any] = field(default_factory=dict, repr=False)
 
 
 @dataclass(frozen=True)
@@ -49,6 +57,7 @@ class Faction:
     key: str
     display_name: str
     units: tuple[UnitDefinition, ...]
+    provenance: dict[str, Any] = field(default_factory=dict, repr=False)
 
 
 @dataclass(frozen=True)
