@@ -30,7 +30,9 @@ $requiredRelative = @(
     'resources\_common\drs\graphics\rome2aoe2_hastati_walk_x1.sld',
     'resources\_common\drs\graphics\rome2aoe2_hastati_walk_x2.sld',
     'resources\_common\drs\graphics\rome2aoe2_hastati_attack_x1.sld',
-    'resources\_common\drs\graphics\rome2aoe2_hastati_attack_x2.sld'
+    'resources\_common\drs\graphics\rome2aoe2_hastati_attack_x2.sld',
+    'resources\_common\drs\graphics\rome2aoe2_hastati_death_x1.sld',
+    'resources\_common\drs\graphics\rome2aoe2_hastati_death_x2.sld'
 )
 foreach ($relative in $requiredRelative) {
     if (-not (Test-Path -LiteralPath (Join-Path $sourceMod $relative) -PathType Leaf)) {

@@ -1,8 +1,9 @@
 """Build a production Hastati scene from an Asset Editor-native glTF Action.
 
-This is the authoritative production animation route.  It deliberately reuses
-the Action created by Blender's standard glTF importer and animates only an
-outer locomotion-centering object.  No joint curve is decoded or reconstructed.
+This is the authoritative production animation route. It deliberately reuses
+the Action created by Blender's standard glTF importer. Optional walk-style
+locomotion centering is isolated on an outer object; death preserves all native
+motion. No joint curve is decoded or reconstructed.
 """
 
 import argparse
@@ -24,6 +25,10 @@ def arguments():
     parser.add_argument("--input-blend", type=Path, required=True)
     parser.add_argument("--output-blend", type=Path, required=True)
     parser.add_argument("--report", type=Path, required=True)
+    parser.add_argument("--action-name", default="AE_NATIVE__sws_walk_162_cm")
+    parser.add_argument("--motion-policy", choices=("center-horizontal", "preserve-native"),
+                        default="center-horizontal")
+    parser.add_argument("--hide-equipment-prefix", action="append", default=[])
     return parser.parse_args(sys.argv[sys.argv.index("--") + 1:])
 
 
@@ -117,7 +122,7 @@ def main():
         armature.animation_data_create()
     armature.animation_data.action = native_action
     armature.animation_data.action_slot = native_slot
-    native_action.name = "AE_NATIVE__sws_walk_162_cm"
+    native_action.name = args.action_name
 
     # Imported geometry is only an Action/rest-skeleton carrier.  Production
     # geometry, materials, pivots, and rigid attachment objects remain intact.
@@ -125,20 +130,22 @@ def main():
         bpy.data.objects.remove(obj, do_unlink=True)
 
     facet = bpy.data.objects.new("Rome2AoE2_FacetRoot", None)
-    center = bpy.data.objects.new("Rome2AoE2_LocomotionCenter", None)
     bpy.context.scene.collection.objects.link(facet)
-    bpy.context.scene.collection.objects.link(center)
-    center.parent = facet
     arm_world = armature.matrix_world.copy()
-    armature.parent = center
+    center = None
+    if args.motion_policy == "center-horizontal":
+        center = bpy.data.objects.new("Rome2AoE2_LocomotionCenter", None)
+        bpy.context.scene.collection.objects.link(center)
+        center.parent = facet
+        armature.parent = center
+    else:
+        armature.parent = facet
     armature.matrix_world = arm_world
 
     start, end = native_action.frame_range
     curves = action_curves(native_action)
     sample_frames = sorted({float(point.co[0]) for curve in curves for point in curve.keyframe_points})
     source_positions = []
-    center.animation_data_clear()
-    center.location = (0.0, 0.0, 0.0)
     for frame in sample_frames:
         whole = int(frame)
         bpy.context.scene.frame_set(whole, subframe=frame - whole)
@@ -149,13 +156,23 @@ def main():
         location = (armature.matrix_world @ hips.matrix).translation.copy()
         source_positions.append((frame, location.x, location.y, location.z))
     reference = source_positions[0]
-    for frame, x, y, _z in source_positions:
-        center.location = (reference[1] - x, reference[2] - y, 0.0)
-        center.keyframe_insert(data_path="location", frame=frame, group="External locomotion centering")
-    for curve in action_curves(center.animation_data.action):
-        for point in curve.keyframe_points:
-            point.interpolation = "LINEAR"
-    center.location = (0.0, 0.0, 0.0)
+    if center is not None:
+        center.animation_data_clear()
+        center.location = (0.0, 0.0, 0.0)
+        for frame, x, y, _z in source_positions:
+            center.location = (reference[1] - x, reference[2] - y, 0.0)
+            center.keyframe_insert(data_path="location", frame=frame, group="External locomotion centering")
+        for curve in action_curves(center.animation_data.action):
+            for point in curve.keyframe_points:
+                point.interpolation = "LINEAR"
+        center.location = (0.0, 0.0, 0.0)
+
+    hidden_equipment = []
+    for obj in bpy.context.scene.objects:
+        if any(obj.name.startswith(prefix) for prefix in args.hide_equipment_prefix):
+            obj.hide_render = True
+            obj.hide_viewport = True
+            hidden_equipment.append(obj.name)
 
     scene = bpy.context.scene
     scene.frame_start = int(start)
@@ -192,18 +209,22 @@ def main():
         "production_only_bones": production_only,
         "sample_count": len(sample_frames),
         "action_frame_range": [float(start), float(end)],
+        "motion_policy": args.motion_policy,
         "centering": {
-            "object": center.name,
+            "object": center.name if center is not None else None,
             "parent": facet.name,
             "reference_bone": "bn_hips",
             "horizontal_axes": ["local X", "local Y"],
             "vertical_channel_modified": False,
             "joint_channels_modified": False,
             "samples": [{"frame": f, "source_hips": [x, y, z],
-                         "container": [reference[1] - x, reference[2] - y, 0.0]}
+                         "container": ([reference[1] - x, reference[2] - y, 0.0]
+                                       if center is not None else [0.0, 0.0, 0.0])}
                         for f, x, y, z in source_positions],
         },
-        "hierarchy": [facet.name, center.name, armature.name],
+        "hierarchy": ([facet.name, center.name, armature.name]
+                      if center is not None else [facet.name, armature.name]),
+        "hidden_equipment": sorted(hidden_equipment),
         "attachment_local_max_delta": attachment_delta,
         "attachments": attachments_after,
     }

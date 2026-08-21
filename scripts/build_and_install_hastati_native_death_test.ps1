@@ -1,0 +1,12 @@
+[CmdletBinding()]
+param([string]$AoEProfile = 'C:\Users\sauln\Games\Age of Empires 2 DE\76561198088401383')
+
+$ErrorActionPreference = 'Stop'
+$root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+& (Join-Path $PSScriptRoot 'build_hastati_native_death_test.ps1')
+if ($LASTEXITCODE -ne 0) { throw 'Native death build failed' }
+& (Join-Path $PSScriptRoot 'install_hastati_test.ps1') `
+    -GeneratedMod (Join-Path $root 'build\dev-test\hastati\Rome2AoE2 Hastati Dev Test') `
+    -GeneratedScenario (Join-Path $root 'build\dev-test\hastati\Rome2AoE2HastatiDevTest.aoe2scenario') `
+    -AoEProfile $AoEProfile
+if ($LASTEXITCODE -ne 0) { throw 'Native death installation failed' }
