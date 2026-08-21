@@ -47,7 +47,8 @@ def _asset_metadata(source_root: Path) -> dict[str, dict[str, Any]]:
 
 
 class Catalog:
-    def __init__(self, evidence: dict[str, Any], effective_evidence: dict[str, Any] | None = None):
+    def __init__(self, evidence: dict[str, Any], effective_evidence: dict[str, Any] | None = None,
+                 validated_evidence: bool = True):
         self.source_index = evidence
         self._effective_rows = {
             row["request"]["main_unit"]: row for row in (effective_evidence or {}).get("units", [])
@@ -64,6 +65,8 @@ class Catalog:
             self.factions = tuple(self._build_factions(grouped))
         if self._effective_rows:
             self.factions = tuple(self._apply_effective_status(faction) for faction in self.factions)
+        if validated_evidence:
+            self.factions = tuple(self._apply_validated_status(faction) for faction in self.factions)
         self._units = defaultdict(list)
         for faction in self.factions:
             for unit in faction.units:
@@ -75,6 +78,22 @@ class Catalog:
             if unit.main_unit in self._effective_rows and unit.status != "UNSUPPORTED":
                 remaining = tuple(code for code in unit.reason_codes if code != "MISSING_REQUIRED_ASSET")
                 units.append(replace(unit, status="READY" if not remaining else "PARTIAL", reason_codes=remaining))
+            else:
+                units.append(unit)
+        return replace(faction, units=tuple(units))
+
+    @staticmethod
+    def _apply_validated_status(faction: Faction) -> Faction:
+        validated_root = ROOT / "build/cache/rome2aoe2/validated-units-v1"
+        units = []
+        for unit in faction.units:
+            path = validated_root / f"{unit.main_unit.casefold()}.json"
+            if path.is_file() and unit.status != "UNSUPPORTED":
+                value = json.loads(path.read_text(encoding="utf-8"))
+                missing = [item for item in value.get("dependencies", [])
+                           if item.get("required") and item.get("validation_state") != "valid"]
+                units.append(replace(unit, status="READY" if not missing else "PARTIAL",
+                                     reason_codes=() if not missing else ("MISSING_REQUIRED_ASSET",)))
             else:
                 units.append(unit)
         return replace(faction, units=tuple(units))
@@ -148,6 +167,11 @@ class Catalog:
         definition = self.find_unit(selector, faction)
         row = self._effective_rows.get(definition.main_unit)
         if row is None:
+            from .dependencies import DependencyResolver, plan_from_json, validated_plan_path
+            validated = validated_plan_path(definition.main_unit)
+            if validated.is_file():
+                plan = plan_from_json(json.loads(validated.read_text(encoding="utf-8")), definition)
+                return DependencyResolver(cache_root=Path(plan.cache_root)).resolved_unit(plan)
             chosen = next((item for item in definition.variants if item.get("source_pack")),
                           definition.variants[0] if definition.variants else None)
             if chosen is None:

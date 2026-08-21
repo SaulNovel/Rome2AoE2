@@ -70,3 +70,33 @@ class ResolvedUnit:
     animation: AnimationProfile
     source_root: str
     raw_identity: dict[str, Any] = field(repr=False)
+
+
+@dataclass(frozen=True)
+class Dependency:
+    path: str
+    kind: str
+    source_pack: str | None
+    parent: str
+    required: bool = True
+    cache_state: str = "missing"
+    validation_state: str = "pending"
+    metadata: dict[str, Any] = field(default_factory=dict, repr=False)
+
+
+@dataclass(frozen=True)
+class DependencyPlan:
+    unit: UnitDefinition
+    dependencies: tuple[Dependency, ...]
+    slots: tuple[dict[str, Any], ...]
+    animation_family: str
+    skeleton: str
+    cache_root: str
+
+    @property
+    def cache_hits(self) -> int:
+        return sum(item.cache_state == "hit" for item in self.dependencies)
+
+    @property
+    def cache_misses(self) -> int:
+        return sum(item.cache_state not in {"hit", "virtual"} for item in self.dependencies)

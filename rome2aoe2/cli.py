@@ -11,6 +11,8 @@ from .errors import ConverterError, ErrorCode
 from .manifest import build_manifest
 from .models import ComponentSlot, Faction, ResolvedUnit
 from .indexer import SourceIndexer, write_cache
+from .dependencies import (DependencyResolver, plan_from_json, plan_json,
+                           validated_plan_path, write_validated_plan)
 
 
 def print_factions(catalog: Catalog, output: TextIO) -> None:
@@ -136,12 +138,17 @@ def parser() -> argparse.ArgumentParser:
     inspect.add_argument("unit")
     inspect.add_argument("--faction")
     inspect.add_argument("--verbose", action="store_true")
+    inspect.add_argument("--dependencies", action="store_true")
     configure_command = commands.add_parser("configure")
     configure_command.add_argument("--output", type=Path, default=Path("rome2aoe2-manifest.json"))
     convert = commands.add_parser("convert")
     convert.add_argument("manifest", type=Path)
     catalog_command = commands.add_parser("catalog")
     catalog_command.add_argument("action", choices=("rebuild",))
+    extract = commands.add_parser("extract")
+    extract.add_argument("unit")
+    extract.add_argument("--faction")
+    extract.add_argument("--manifest", type=Path)
     return result
 
 
@@ -164,7 +171,31 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "list-units":
             print_catalog(catalog, sys.stdout, args.faction)
         elif args.command == "inspect":
-            print_resolved(catalog.resolve(args.unit, args.faction), sys.stdout, args.verbose)
+            if args.dependencies:
+                definition = catalog.find_unit(args.unit, args.faction)
+                validated = validated_plan_path(definition.main_unit)
+                plan = (plan_from_json(json.loads(validated.read_text(encoding="utf-8")), definition)
+                        if validated.is_file() else DependencyResolver().plan(definition))
+                print(json.dumps(plan_json(plan), indent=2, sort_keys=True))
+            else:
+                print_resolved(catalog.resolve(args.unit, args.faction), sys.stdout, args.verbose)
+        elif args.command == "extract":
+            definition = catalog.find_unit(args.unit, args.faction)
+            resolver = DependencyResolver()
+            plan = resolver.extract(resolver.plan(definition))
+            status, reasons = resolver.validate(plan)
+            if status != "READY":
+                raise ConverterError(ErrorCode.MISSING_SOURCE_ASSET,
+                                     "Selected unit dependency closure did not validate",
+                                     unit=definition.main_unit, status=status, reasons=reasons)
+            plan_path = write_validated_plan(plan)
+            unit = resolver.resolved_unit(plan)
+            manifest = build_manifest(unit)
+            manifest_path = args.manifest or plan_path.with_name(f"{definition.main_unit.casefold()}-default-manifest.json")
+            manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+            print(json.dumps({"status": status, "plan": str(plan_path), "manifest": str(manifest_path),
+                              "cache_hits": plan.cache_hits, "cache_misses": plan.cache_misses,
+                              "dependencies": len(plan.dependencies)}, indent=2))
         else:
             configure(catalog, args.output, sys.stdin, sys.stdout)
         return 0

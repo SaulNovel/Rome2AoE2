@@ -11,7 +11,7 @@ class FullCatalogTests(unittest.TestCase):
     def setUpClass(cls):
         cls.index = json.loads(DEFAULT_CACHE.read_text(encoding="utf-8"))
         cls.catalog = load_default_catalog()
-        cls.source_only = Catalog(cls.index, None)
+        cls.source_only = Catalog(cls.index, None, validated_evidence=False)
         cls.rome = cls.catalog.find_faction("rom_rome")
 
     def test_authoritative_source_index_discovers_full_roster(self):
@@ -45,7 +45,7 @@ class FullCatalogTests(unittest.TestCase):
 
     def test_convertibility_classes_and_structured_reasons(self):
         self.assertEqual("READY", self.catalog.find_unit("Rom_Hastati", self.rome).status)
-        principes = self.catalog.find_unit("Rom_Principes", self.rome)
+        principes = self.source_only.find_unit("Rom_Principes", "rom_rome")
         self.assertEqual("PARTIAL", principes.status)
         self.assertEqual(("MISSING_REQUIRED_ASSET",), principes.reason_codes)
         ballista = self.catalog.find_unit("Rom_Ballista", self.rome)
