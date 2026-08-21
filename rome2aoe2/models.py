@@ -1,0 +1,63 @@
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+
+@dataclass(frozen=True)
+class AnimationProfile:
+    skeleton: str
+    family: str
+
+
+@dataclass(frozen=True)
+class ComponentOption:
+    key: str
+    source_path: str
+    definition: str
+    socket: str | None = None
+    skeleton: str | None = None
+    material_types: tuple[str, ...] = ()
+    source_exists: bool = False
+
+    @property
+    def display_name(self) -> str:
+        return Path(self.source_path).stem
+
+
+@dataclass(frozen=True)
+class ComponentSlot:
+    key: str
+    source_slot_paths: tuple[str, ...]
+    required: bool
+    default_key: str | None
+    options: tuple[ComponentOption, ...]
+
+
+@dataclass(frozen=True)
+class UnitDefinition:
+    catalog_id: int
+    faction_key: str
+    display_name: str
+    main_unit: str
+
+
+@dataclass(frozen=True)
+class Faction:
+    catalog_id: int
+    key: str
+    display_name: str
+    units: tuple[UnitDefinition, ...]
+
+
+@dataclass(frozen=True)
+class ResolvedUnit:
+    definition: UnitDefinition
+    land_unit: str
+    variant: str
+    root_vmd: str
+    component_slots: tuple[ComponentSlot, ...]
+    animation: AnimationProfile
+    source_root: str
+    raw_identity: dict[str, Any] = field(repr=False)
