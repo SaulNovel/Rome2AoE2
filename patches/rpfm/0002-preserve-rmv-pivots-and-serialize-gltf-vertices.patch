@@ -1,0 +1,70 @@
+diff --git a/rpfm_extensions/src/gltf/mod.rs b/rpfm_extensions/src/gltf/mod.rs
+--- a/rpfm_extensions/src/gltf/mod.rs
++++ b/rpfm_extensions/src/gltf/mod.rs
+@@ -131,11 +131,11 @@ pub fn gltf_from_rigid(value: &RigidModel, dependencies: &mut Dependencies) -> R
+             let (min_pos, max_pos) = bounding_coords_positions(vertices);
+
+             // Encode the vertex and index data to binary.
+-            let vertex_bin = to_padded_byte_vector(vertices.clone());
++            let vertex_bin = encode_vertices(vertices);
+             let index_bin = to_padded_byte_vector(indices.clone());
+
+             // Buffers
+-            let vertex_buffer_length = vertices.len() * mem::size_of::<Vertex>();
++            let vertex_buffer_length = vertices.len() * GLTF_VERTEX_STRIDE;
+             let vertex_buffer = root.push(json::Buffer {
+                 byte_length: USize64::from(vertex_buffer_length),
+                 extensions: Default::default(),
+@@ -158,7 +158,7 @@ pub fn gltf_from_rigid(value: &RigidModel, dependencies: &mut Dependencies) -> R
+                 buffer: vertex_buffer,
+                 byte_length: USize64::from(vertex_buffer_length),
+                 byte_offset: None,
+-                byte_stride: Some(json::buffer::Stride(mem::size_of::<Vertex>())),
++                byte_stride: Some(json::buffer::Stride(GLTF_VERTEX_STRIDE)),
+                 extensions: Default::default(),
+                 extras: Default::default(),
+                 name: None,
+@@ -463,8 +463,15 @@ pub fn gltf_from_rigid(value: &RigidModel, dependencies: &mut Dependencies) -> R
+                 weights: None,
+             });
+
++            // Asset Editor mirrors RMV geometry on X and carries the decoded
++            // RMV material pivot as the rigid child's local node translation.
++            // Preserve the same source transform so named socket attachment
++            // composes bone * model-frame * child-pivot rather than placing
++            // the socket at the mesh's recentered origin.
++            let pivot = mesh_block.material().v_pivot();
+             let node = root.push(json::Node {
+                 mesh: Some(mesh),
++                translation: Some([-pivot.x, pivot.y, pivot.z]),
+                 ..Default::default()
+             });
+
+@@ -613,3 +620,27 @@ fn to_padded_byte_vector<T>(vec: Vec<T>) -> Vec<u8> {
+     }
+     new_vec
+ }
++
++/// Encode the decoded vertex fields explicitly at the offsets used by the glTF
++/// accessors. `Vertex` contains nalgebra vectors and has no stable packed Rust
++/// representation, so transmuting the struct exposes alignment padding as UV,
++/// normal, tangent, joint, and weight data.
++const GLTF_VERTEX_STRIDE: usize = 120;
++
++fn encode_vertices(vertices: &[Vertex]) -> Vec<u8> {
++    let mut bytes = Vec::with_capacity(vertices.len() * GLTF_VERTEX_STRIDE);
++    for vertex in vertices {
++        for value in vertex.position().iter() { bytes.extend_from_slice(&value.to_le_bytes()); }
++        for value in vertex.texture_coordinate().iter() { bytes.extend_from_slice(&value.to_le_bytes()); }
++        for value in vertex.texture_coordinate2().iter() { bytes.extend_from_slice(&value.to_le_bytes()); }
++        for value in vertex.normal().iter() { bytes.extend_from_slice(&value.to_le_bytes()); }
++        for value in vertex.tangent().iter() { bytes.extend_from_slice(&value.to_le_bytes()); }
++        for value in vertex.bitangent().iter() { bytes.extend_from_slice(&value.to_le_bytes()); }
++        for value in vertex.color().iter() { bytes.extend_from_slice(&value.to_le_bytes()); }
++        bytes.extend_from_slice(vertex.bone_indices().as_slice());
++        for value in vertex.weights().iter() { bytes.extend_from_slice(&value.to_le_bytes()); }
++        bytes.extend_from_slice(vertex.uk_1().as_slice());
++    }
++    debug_assert_eq!(bytes.len(), vertices.len() * GLTF_VERTEX_STRIDE);
++    bytes
++}

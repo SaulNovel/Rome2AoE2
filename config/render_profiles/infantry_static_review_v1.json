@@ -1,0 +1,27 @@
+{
+  "format": "rome2aoe2.render-profile",
+  "version": 1,
+  "name": "infantry_static_review_v1",
+  "status": "VALIDATED",
+  "scope": "static human-review previews only",
+  "provenance": "approved Hastati runtime material-oracle scene",
+  "camera": {
+    "projection": "orthographic",
+    "azimuth_degrees": 112.5,
+    "elevation_degrees": 18.0,
+    "distance": 12.0,
+    "orthographic_span_multiplier": 1.12,
+    "target_height_fraction": 0.48,
+    "target_policy": "geometry_bounds"
+  },
+  "lighting": {
+    "backend": "rome2_exact_material_backend",
+    "environment_yaw_degrees": 0,
+    "policy": "frozen_captured_rome2_runtime"
+  },
+  "display": {
+    "policy": "exact_backend_frozen",
+    "transparent_output": true
+  },
+  "direction_policy": "fixed_camera_and_lighting_rotate_unit_root"
+}

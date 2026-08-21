@@ -14,17 +14,23 @@ class ErrorCode(str, Enum):
     MISSING_SOURCE_ASSET = "MISSING_SOURCE_ASSET"
     MISSING_TEXTURE = "MISSING_TEXTURE"
     UNSUPPORTED_MATERIAL = "UNSUPPORTED_MATERIAL"
+    UNSUPPORTED_MATERIAL_FIDELITY = "UNSUPPORTED_MATERIAL_FIDELITY"
     UNRESOLVED_ANIMATION_FAMILY = "UNRESOLVED_ANIMATION_FAMILY"
     CONVERSION_NOT_IMPLEMENTED = "CONVERSION_NOT_IMPLEMENTED"
     UNSUPPORTED_SKELETON = "UNSUPPORTED_SKELETON"
     UNSUPPORTED_UNIT_CLASS = "UNSUPPORTED_UNIT_CLASS"
     UNRESOLVED_VMD = "UNRESOLVED_VMD"
     MISSING_REQUIRED_ASSET = "MISSING_REQUIRED_ASSET"
+    MANIFEST_SCHEMA_UNSUPPORTED = "MANIFEST_SCHEMA_UNSUPPORTED"
+    MANIFEST_UNIT_MISMATCH = "MANIFEST_UNIT_MISMATCH"
+    MANIFEST_COMPONENT_INVALID = "MANIFEST_COMPONENT_INVALID"
+    UNSUPPORTED_CAPABILITY = "UNSUPPORTED_CAPABILITY"
 
 
 class ConverterError(RuntimeError):
     def __init__(self, code: ErrorCode, message: str, **context: Any):
         self.code = code
+        self.message = message
         self.context = context
         detail = " ".join(f"{key}={value!r}" for key, value in sorted(context.items()))
         super().__init__(f"{code.value}: {message}" + (f" ({detail})" if detail else ""))

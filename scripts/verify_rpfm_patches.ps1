@@ -87,9 +87,12 @@ try {
         throw "RPFM has unmanaged changes or a missing managed change. Expected paths: $($expectedPaths -join ', '); actual paths: $($actualPaths -join ', ')."
     }
     foreach ($path in $expectedPaths) {
-        $actualHash = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $submodulePath $path)).Hash
-        $expectedHash = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $temporaryDirectory $path)).Hash
-        if ($actualHash -ne $expectedHash) {
+        # Git may materialize the submodule with CRLF on Windows while the
+        # temporary archive/patch tree remains LF. Compare normalized source
+        # text so line-ending policy is not mistaken for an unmanaged edit.
+        $actualText = [IO.File]::ReadAllText((Join-Path $submodulePath $path)).Replace("`r`n", "`n")
+        $expectedText = [IO.File]::ReadAllText((Join-Path $temporaryDirectory $path)).Replace("`r`n", "`n")
+        if ($actualText -cne $expectedText) {
             throw "RPFM contains unmanaged edits in managed file '$path'."
         }
     }

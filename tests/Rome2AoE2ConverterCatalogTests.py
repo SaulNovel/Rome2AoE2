@@ -6,7 +6,7 @@ from pathlib import Path
 from rome2aoe2.catalog import load_default_catalog
 from rome2aoe2.cli import choose_component, choose_unit
 from rome2aoe2.errors import ConverterError, ErrorCode
-from rome2aoe2.manifest import build_manifest, select_components
+from rome2aoe2.manifest import AutoSelection, build_manifest, select_components
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -90,8 +90,9 @@ class ConverterCatalogTests(unittest.TestCase):
         self.assertIn("UNIT_NOT_FOUND", output.getvalue())
         required = next(slot for slot in unit.component_slots if slot.required)
         output = io.StringIO()
-        selected = choose_component(required, io.StringIO("0\nD\n"), output)
+        selected = choose_component(required, io.StringIO("0\nA\n"), output)
         self.assertEqual(required.default_key, selected)
+        self.assertIsInstance(selected, AutoSelection)
         self.assertIn("REQUIRED_COMPONENT_MISSING", output.getvalue())
 
 

@@ -245,8 +245,9 @@ class Catalog:
                     material_types=materials,
                     source_exists=bool(asset),
                 ))
-        # VMD source order is semantically significant: Rome II's default is
-        # the first declared alternative, not lexical asset order.
+        # VMD source order is semantically significant, but no authoritative
+        # default marker exists. Auto resolution freezes the first distinct
+        # declared asset rather than making a runtime-random choice.
         ordered = tuple(options.values())
         required = all(slot.get("probability") in (None, "", "1", "1.0") for slot in slots)
         return ComponentSlot(

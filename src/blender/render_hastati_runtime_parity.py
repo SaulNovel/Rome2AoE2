@@ -64,7 +64,11 @@ def _image_uv(nodes, links, node, uv_name="UVMap", scale=1.0):
     uv=nodes.new("ShaderNodeUVMap");uv.uv_map=uv_name
     value=uv.outputs["UV"]
     if scale != 1.0:
-        mul=nodes.new("ShaderNodeVectorMath");mul.operation="SCALE";mul.inputs[3].default_value=scale
+        mul=nodes.new("ShaderNodeVectorMath")
+        if isinstance(scale,(tuple,list)):
+            mul.operation="MULTIPLY";mul.inputs[1].default_value=(*scale[:2],1.0)
+        else:
+            mul.operation="SCALE";mul.inputs[3].default_value=scale
         links.new(value,mul.inputs[0]);value=mul.outputs[0]
     links.new(value,node.inputs["Vector"])
 
@@ -74,10 +78,32 @@ def _encoded_vector(nodes, links, vector):
     add=nodes.new("ShaderNodeVectorMath");add.operation="ADD";add.inputs[1].default_value=(.5,.5,.5);links.new(scale.outputs[0],add.inputs[0]);return add.outputs[0]
 
 
-def build_pass(root, pass_name):
+def _normal_uv_name(material, material_type):
+    """Use skin TEXCOORD_1 only when the decoded source set is non-degenerate.
+
+    Rome II assets without a secondary set decode to a constant (0, 0).  The
+    approved Asset Editor scene omits that empty layer and therefore samples
+    the primary set; preserve the same source-defined fallback after glTF import.
+    """
+    if material_type != "WeightedSkinDirtmap":
+        return "UVMap"
+    for obj in bpy.data.objects:
+        if obj.type != "MESH" or not any(slot.material == material for slot in obj.material_slots):
+            continue
+        layer = obj.data.uv_layers.get("UVMap.001")
+        if layer is None or not layer.data:
+            continue
+        u0, v0 = layer.data[0].uv
+        if any(abs(item.uv[0]-u0)>1e-7 or abs(item.uv[1]-v0)>1e-7 for item in layer.data[1:]):
+            return "UVMap.001"
+    return "UVMap"
+
+
+def build_pass(root, pass_name, texture_base=None):
     manifest=json.loads((root/"texture-manifest.json").read_text())
     records={m["material_name"]:m for m in manifest["materials"]}
-    maps={name:{t["semantic"]:root/"textures"/Path(t["extracted_path"]) for t in row["textures"] if t["status"]=="resolved"} for name,row in records.items()}
+    texture_base=Path(texture_base) if texture_base is not None else root/"textures"
+    maps={name:{t["semantic"]:texture_base/Path(t["extracted_path"]) for t in row["textures"] if t["status"]=="resolved"} for name,row in records.items()}
     for mat in bpy.data.materials:
         key=mat.name.split('.')[0]; tex=maps.get(key,{})
         mat.use_nodes=True; nodes=mat.node_tree.nodes; links=mat.node_tree.links; nodes.clear()
@@ -93,13 +119,26 @@ def build_pass(root, pass_name):
         spec=image_node(nodes,tex["Specular"],False) if "Specular" in tex else None
         gloss=image_node(nodes,tex["GlossMap"],False) if "GlossMap" in tex else None # captured sRGB view
         normal=image_node(nodes,tex["Normal"],True) if "Normal" in tex else None
+        normal_uv=_normal_uv_name(mat,material_type)
         if normal:
             # Captured skin TEXCOORD1.zw maps to the preserved glTF TEXCOORD_1.
-            _image_uv(nodes,links,normal,"UVMap.001" if material_type=="WeightedSkinDirtmap" else "UVMap")
+            _image_uv(nodes,links,normal,normal_uv)
         dirt_map=dirt_mask=skin_mask=None
         if material_type=="WeightedDirtmap" and key=="roman_montefortino":
+            # Frozen captured bindings used by the approved Hastati frames.
             dirt_map=image_node(nodes,REC/"helmet_05_s_decal_dirt_map.dds",True)
             dirt_mask=image_node(nodes,REC/"helmet_04_s_decal_dirt_mask.dds",True)
+        elif material_type=="WeightedDirtmap":
+            # Other assets use their authoritative bindings.  CA's test_black
+            # placeholder is a zero-contribution sentinel, never full dirt.
+            if "DecalDirtmap" in tex and "test_black" not in str(tex["DecalDirtmap"]).lower():
+                dirt_map=image_node(nodes,tex["DecalDirtmap"],True)
+            if "DecalDirtmask" in tex and "test_black" not in str(tex["DecalDirtmask"]).lower():
+                dirt_mask=image_node(nodes,tex["DecalDirtmask"],True)
+            scales={int(pair[0]):float(pair[1]) for pair in records.get(key,{}).get("parameters",{}).get("float",[])}
+            dirt_scale=(scales.get(0,1.0),scales.get(1,1.0))
+            if dirt_map:_image_uv(nodes,links,dirt_map,"UVMap",dirt_scale)
+            if dirt_mask:_image_uv(nodes,links,dirt_mask,"UVMap",dirt_scale)
         elif material_type=="WeightedSkinDirtmap":
             if "DecalDirtmap" in tex and "DecalDirtmask" in tex:
                 dirt_map=image_node(nodes,tex["DecalDirtmap"],True); dirt_mask=image_node(nodes,tex["DecalDirtmask"],True)
@@ -135,7 +174,7 @@ def build_pass(root, pass_name):
             if pass_name=="basis_normal":
                 geo=nodes.new("ShaderNodeNewGeometry");vector=geo.outputs["Normal"]
             else:
-                nm=nodes.new("ShaderNodeNormalMap");nm.space="TANGENT";nm.uv_map="UVMap.001" if material_type=="WeightedSkinDirtmap" else "UVMap"
+                nm=nodes.new("ShaderNodeNormalMap");nm.space="TANGENT";nm.uv_map=normal_uv
                 nm.inputs["Strength"].default_value=1
                 nm.inputs["Color"].default_value=((1,.5,.5,1) if pass_name=="basis_tangent" else (.5,1,.5,1))
                 vector=nm.outputs["Normal"]
@@ -150,8 +189,8 @@ def build_pass(root, pass_name):
         elif pass_name not in ("family","region"): emission.inputs["Color"].default_value=(0,0,0,1)
 
 
-def render_aov(scene, root, name):
-    build_pass(root,name); path=(AOV/f"{name}.exr").resolve(); scene.render.filepath=str(path); bpy.ops.render.render(write_still=True)
+def render_aov(scene, root, name, texture_base=None):
+    build_pass(root,name,texture_base); path=(AOV/f"{name}.exr").resolve(); scene.render.filepath=str(path); bpy.ops.render.render(write_still=True)
     image=bpy.data.images.load(str(path),check_existing=False); data=np.empty(len(image.pixels),np.float32); image.pixels.foreach_get(data); data=data.reshape((RESOLUTION,RESOLUTION,4))[::-1].copy(); bpy.data.images.remove(image)
     np.save(AOV/f"{name}.npy",data); return data
 
@@ -224,7 +263,7 @@ def debug_rgba(name,rgb,alpha,active):
     out=np.clip(rgb,0,1).copy(); out[~active]=0; png_rgba(OUT/name,np.concatenate((out,np.clip(alpha,0,1)),axis=-1))
 
 
-def shade(scene, arrays, environment_yaw_degrees=0, output_name="runtime-parity-f03.png", diagnostics=True, region_aov=None, canvas_offset=None):
+def shade(scene, arrays, environment_yaw_degrees=0, output_name="runtime-parity-f03.png", diagnostics=True, region_aov=None, canvas_offset=None, prepared_override=None):
     diffuse_aov=arrays["diffuse_raw"]; family_aov=arrays["family"]
     # Blender surface alpha is geometric coverage, so texture alpha travels in
     # explicit raw scalar passes rather than being confused with AOV coverage.
@@ -240,17 +279,21 @@ def shade(scene, arrays, environment_yaw_degrees=0, output_name="runtime-parity-
     decal_pixels=(family_aov[...,1]>.5)&(family_aov[...,0]<.5)
     dirt_pixels=(family_aov[...,2]>.5)&(family_aov[...,0]<.5)&(family_aov[...,1]<.5)
     weighted_pixels=active&~skin_pixels&~decal_pixels&~dirt_pixels
-    def assign(mask,p):
-        N[mask]=p.normal;D[mask]=p.diffuse;F[mask]=p.specular;S[mask]=p.smoothness;R[mask]=p.reflectivity
-    raw=(diffuse_aov,arrays["specular_raw"],arrays["normal_sample"],arrays["gloss_raw"])
-    if np.any(weighted_pixels):
-        q=weighted_pixels;assign(q,prepare_weighted(*(x[q] for x in raw),base[q],tangent[q],bitangent[q],arrays["mask_raw"][q],FACTION))
-    if np.any(dirt_pixels):
-        q=dirt_pixels;assign(q,prepare_weighted_dirtmap(*(x[q] for x in raw),arrays["dirt_mask_raw"][q],arrays["dirt_raw"][q],base[q],tangent[q],bitangent[q],arrays["mask_raw"][q],FACTION))
-    if np.any(skin_pixels):
-        q=skin_pixels;assign(q,prepare_weighted_skin_dirtmap(diffuse_aov[q],arrays["normal_sample"][q],arrays["gloss_raw"][q],arrays["dirt_mask_raw"][q],arrays["dirt_raw"][q],arrays["specular_raw"][q],base[q],tangent[q],bitangent[q]))
-    if np.any(decal_pixels):
-        q=decal_pixels;assign(q,prepare_decal_dirtmap(*(x[q] for x in raw),arrays["mask_raw"][q],arrays["dirt_mask_raw"][q],arrays["dirt_raw"][q],base[q],tangent[q],bitangent[q],SHIELD_FACTION))
+    if prepared_override is not None:
+        N=np.asarray(prepared_override["normal"],np.float32).copy();D=np.asarray(prepared_override["diffuse"],np.float32).copy()
+        F=np.asarray(prepared_override["specular"],np.float32).copy();S=np.asarray(prepared_override["smoothness"],np.float32).copy();R=np.asarray(prepared_override["reflectivity"],np.float32).copy()
+    else:
+        def assign(mask,p):
+            N[mask]=p.normal;D[mask]=p.diffuse;F[mask]=p.specular;S[mask]=p.smoothness;R[mask]=p.reflectivity
+        raw=(diffuse_aov,arrays["specular_raw"],arrays["normal_sample"],arrays["gloss_raw"])
+        if np.any(weighted_pixels):
+            q=weighted_pixels;assign(q,prepare_weighted(*(x[q] for x in raw),base[q],tangent[q],bitangent[q],arrays["mask_raw"][q],FACTION))
+        if np.any(dirt_pixels):
+            q=dirt_pixels;assign(q,prepare_weighted_dirtmap(*(x[q] for x in raw),arrays["dirt_mask_raw"][q],arrays["dirt_raw"][q],base[q],tangent[q],bitangent[q],arrays["mask_raw"][q],FACTION))
+        if np.any(skin_pixels):
+            q=skin_pixels;assign(q,prepare_weighted_skin_dirtmap(diffuse_aov[q],arrays["normal_sample"][q],arrays["gloss_raw"][q],arrays["dirt_mask_raw"][q],arrays["dirt_raw"][q],arrays["specular_raw"][q],base[q],tangent[q],bitangent[q]))
+        if np.any(decal_pixels):
+            q=decal_pixels;assign(q,prepare_decal_dirtmap(*(x[q] for x in raw),arrays["mask_raw"][q],arrays["dirt_mask_raw"][q],arrays["dirt_raw"][q],base[q],tangent[q],bitangent[q],SHIELD_FACTION))
     D=np.maximum(D,0);F=np.maximum(F,0);S=np.clip(S,0,1);R=np.clip(R,0,1)
     V=np.array(scene.camera.matrix_world.to_quaternion()@Vector((0,0,1)),np.float32); V=V/np.linalg.norm(V)
     # Exact exporter/global conversion. Captured instance rows contain only

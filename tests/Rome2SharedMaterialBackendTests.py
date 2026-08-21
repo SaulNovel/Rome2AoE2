@@ -28,7 +28,9 @@ class SharedMaterialBackendTests(unittest.TestCase):
         self.assertIn("from runtime_material_preparation import", text)
         self.assertNotIn("def exact_tangent_normal", text)
         self.assertNotIn("def faction_tint", text)
-        self.assertIn('"UVMap.001" if material_type=="WeightedSkinDirtmap"', text)
+        self.assertIn("_normal_uv_name(mat,material_type)", text)
+        self.assertIn('return "UVMap.001"', text)
+        self.assertIn('return "UVMap"', text)
 
     def test_skin_reconstructs_z_before_dirt_and_preserves_mask(self):
         normal_sample=np.array((0.0,.65,0.0,.7),np.float32)

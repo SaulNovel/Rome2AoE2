@@ -8,13 +8,17 @@ use std::sync::OnceLock;
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use rpfm_extensions::dependencies::Dependencies;
 use rpfm_extensions::gltf::{gltf_from_rigid, save_gltf_to_disk};
-use rpfm_lib::files::{pack::Pack, Container, ContainerPath, FileType, RFile};
+use rpfm_lib::files::{
+    db::DB, pack::Pack, table::Table, Container, ContainerPath, DecodeableExtraData,
+    FileType, RFile,
+};
 use rpfm_lib::files::{
     rigidmodel::{MeshBlock, RigidModel},
     Decodeable,
 };
 use rpfm_lib::games::supported_games::{SupportedGames, KEY_ROME_2};
 use rpfm_lib::games::{pfh_file_type::PFHFileType, pfh_version::PFHVersion};
+use rpfm_lib::schema::Schema;
 use serde_json::json;
 
 mod anim_v5;
@@ -46,6 +50,11 @@ enum Command {
     CreateTestPack {
         spec: PathBuf,
         output: PathBuf,
+    },
+    DecodeDb {
+        input: PathBuf,
+        schema: PathBuf,
+        table: String,
     },
     InspectRmv2 {
         input: PathBuf,
@@ -83,7 +92,7 @@ enum LodSelection {
 }
 
 fn usage() -> &'static str {
-    "Usage:\n  rome2aoe2-pack list --pack <pack-file>\n  rome2aoe2-pack contains --pack <pack-file> --path <pack-relative-path>\n  rome2aoe2-pack extract --pack <pack-file> --path <pack-relative-path> --output-root <directory>\n  rome2aoe2-pack create-test-pack --spec <json-file> --output <pack-file>\n  rome2aoe2-pack inspect-rmv2 --input <local-rmv2-file> [--decode]\n  rome2aoe2-pack inspect-skeleton --anim <local-anim-file> --inverse-bind <local-bone-inv-trans-mats-file>\n  rome2aoe2-pack inspect-animation-pose --animation <clip.anim> --skeleton-anim <skeleton.anim> --inverse-bind <bone-inv-trans-mats> --frame <first|last|index>\n  rome2aoe2-pack inspect-animation --animation <clip.anim> --skeleton-anim <skeleton.anim> --inverse-bind <bone-inv-trans-mats> --output <animation.json>\n  rome2aoe2-pack export-rmv2-gltf --input <local-rmv2-file> --output <output.gltf> --lod <highest|index> [--skeleton-anim <local-anim-file> --inverse-bind <local-bone-inv-trans-mats-file>]"
+    "Usage:\n  rome2aoe2-pack list --pack <pack-file>\n  rome2aoe2-pack contains --pack <pack-file> --path <pack-relative-path>\n  rome2aoe2-pack extract --pack <pack-file> --path <pack-relative-path> --output-root <directory>\n  rome2aoe2-pack create-test-pack --spec <json-file> --output <pack-file>\n  rome2aoe2-pack decode-db --input <db-file> --schema <schema.ron> --table <table-name>\n  rome2aoe2-pack inspect-rmv2 --input <local-rmv2-file> [--decode]\n  rome2aoe2-pack inspect-skeleton --anim <local-anim-file> --inverse-bind <local-bone-inv-trans-mats-file>\n  rome2aoe2-pack inspect-animation-pose --animation <clip.anim> --skeleton-anim <skeleton.anim> --inverse-bind <bone-inv-trans-mats> --frame <first|last|index>\n  rome2aoe2-pack inspect-animation --animation <clip.anim> --skeleton-anim <skeleton.anim> --inverse-bind <bone-inv-trans-mats> --output <animation.json>\n  rome2aoe2-pack export-rmv2-gltf --input <local-rmv2-file> --output <output.gltf> --lod <highest|index> [--skeleton-anim <local-anim-file> --inverse-bind <local-bone-inv-trans-mats-file>]"
 }
 
 fn parse_pack_relative_path(value: &str) -> Result<PackRelativePath, String> {
@@ -145,6 +154,8 @@ fn parse_command(arguments: &[String]) -> Result<Command, String> {
     let mut validate_decode = false;
     let mut lod = None;
     let mut frame = None;
+    let mut schema = None;
+    let mut table = None;
     let mut index = 1;
     while index < arguments.len() {
         let option = arguments[index].as_str();
@@ -171,6 +182,8 @@ fn parse_command(arguments: &[String]) -> Result<Command, String> {
             "--inverse-bind" => inverse_bind = Some(PathBuf::from(value)),
             "--lod" => lod = Some(parse_lod_selection(value)?),
             "--frame" => frame = Some(anim_v5::FrameSelection::parse(value)?),
+            "--schema" => schema = Some(PathBuf::from(value)),
+            "--table" => table = Some(value.to_owned()),
             _ => return Err(format!("Unknown option '{}'.\n{}", option, usage())),
         }
     }
@@ -185,6 +198,13 @@ fn parse_command(arguments: &[String]) -> Result<Command, String> {
         return Ok(Command::InspectRmv2 {
             input: input.ok_or_else(|| "Missing --input".to_owned())?,
             validate_decode,
+        });
+    }
+    if operation == "decode-db" {
+        return Ok(Command::DecodeDb {
+            input: input.ok_or_else(|| "Missing --input".to_owned())?,
+            schema: schema.ok_or_else(|| "Missing --schema".to_owned())?,
+            table: table.ok_or_else(|| "Missing --table".to_owned())?,
         });
     }
     if operation == "inspect-skeleton" {
@@ -1235,6 +1255,8 @@ fn rmv2_material_metadata(mesh_block: &MeshBlock) -> serde_json::Value {
             "string": material.params_string(),
             "vector4": material.params_vector4df32().iter().map(|(key, value)| json!([key, [value[0], value[1], value[2], value[3]]])).collect::<Vec<_>>(),
         },
+        "pivot": [material.v_pivot().x, material.v_pivot().y, material.v_pivot().z],
+        "gltf_translation": [-material.v_pivot().x, material.v_pivot().y, material.v_pivot().z],
         "texture_directory": material.texture_directory(),
         "textures": material.textures().iter().map(|texture| json!({
             "path": texture.path(),
@@ -1768,6 +1790,52 @@ fn export_rmv2_gltf(
 
 fn run(command: Command) -> Result<serde_json::Value, String> {
     match command {
+        Command::DecodeDb {
+            input,
+            schema,
+            table,
+        } => {
+            let schema = Schema::load(&schema, None).map_err(|error| {
+                format!("Unable to load schema '{}': {}", schema.display(), error)
+            })?;
+            let bytes = fs::read(&input).map_err(|error| {
+                format!("Unable to read DB input '{}': {}", input.display(), error)
+            })?;
+            let mut extra = DecodeableExtraData::default();
+            extra.set_schema(Some(&schema));
+            extra.set_table_name(Some(&table));
+            let decoded = DB::decode(&mut Cursor::new(bytes), &Some(extra)).map_err(|error| {
+                format!(
+                    "Unable to decode DB input '{}' as '{}': {}",
+                    input.display(),
+                    table,
+                    error
+                )
+            })?;
+            let fields = decoded.table().definition().fields_processed();
+            let rows = decoded
+                .table()
+                .data()
+                .iter()
+                .map(|row| {
+                    fields
+                        .iter()
+                        .zip(row)
+                        .map(|(field, value)| {
+                            (field.name().to_owned(), json!(value.data_to_string().as_ref()))
+                        })
+                        .collect::<serde_json::Map<String, serde_json::Value>>()
+                })
+                .collect::<Vec<_>>();
+            Ok(json!({
+                "format": RESULT_FORMAT,
+                "version": RESULT_VERSION,
+                "operation": "decode-db",
+                "input": input.to_string_lossy(),
+                "table": table,
+                "rows": rows,
+            }))
+        }
         Command::InspectRmv2 {
             input,
             validate_decode,
@@ -1953,6 +2021,27 @@ fn main() -> ExitCode {
 mod tests {
     use super::*;
     use tempfile::tempdir;
+
+    #[test]
+    fn decode_db_command_requires_and_preserves_schema_inputs() {
+        let command = parse_command(&[
+            "decode-db".to_owned(),
+            "--input".to_owned(),
+            "table.bin".to_owned(),
+            "--schema".to_owned(),
+            "schema.ron".to_owned(),
+            "--table".to_owned(),
+            "factions_tables".to_owned(),
+        ])
+        .unwrap();
+        assert!(matches!(
+            command,
+            Command::DecodeDb { input, schema, table }
+                if input == PathBuf::from("table.bin")
+                    && schema == PathBuf::from("schema.ron")
+                    && table == "factions_tables"
+        ));
+    }
 
     fn write_synthetic_pack(root: &Path) -> PathBuf {
         let pack_path = root.join("synthetic.pack");

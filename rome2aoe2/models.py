@@ -33,6 +33,7 @@ class ComponentSlot:
     required: bool
     default_key: str | None
     options: tuple[ComponentOption, ...]
+    selection_semantics: str = "source_alternatives"
 
 
 @dataclass(frozen=True)

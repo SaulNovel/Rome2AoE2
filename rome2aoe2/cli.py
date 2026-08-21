@@ -8,11 +8,12 @@ from typing import TextIO
 
 from .catalog import Catalog, load_default_catalog
 from .errors import ConverterError, ErrorCode
-from .manifest import build_manifest
+from .manifest import AutoSelection, build_manifest
 from .models import ComponentSlot, Faction, ResolvedUnit
 from .indexer import SourceIndexer, write_cache
 from .dependencies import (DependencyResolver, plan_from_json, plan_json,
                            validated_plan_path, write_validated_plan)
+from .conversion import convert as convert_manifest
 
 
 def print_factions(catalog: Catalog, output: TextIO) -> None:
@@ -90,7 +91,7 @@ def choose_unit(catalog: Catalog, input_stream: TextIO, output: TextIO, faction=
 
 def choose_component(slot: ComponentSlot, input_stream: TextIO, output: TextIO) -> str | None:
     print(f"\n{slot.key} ({'required' if slot.required else 'optional'})", file=output)
-    print("[D] Rome II default", file=output)
+    print("[A] Auto (deterministic source-first)", file=output)
     if not slot.required:
         print("[0] None", file=output)
     for index, option in enumerate(slot.options, 1):
@@ -98,8 +99,8 @@ def choose_component(slot: ComponentSlot, input_stream: TextIO, output: TextIO) 
         print(f"[{index}] {option.display_name} | {option.source_path}{socket}", file=output)
     while True:
         value = _prompt("Select component: ", input_stream, output)
-        if value.casefold() == "d":
-            return slot.default_key
+        if value.casefold() == "a":
+            return AutoSelection(slot.default_key)
         if value == "0":
             if slot.required:
                 print(f"{ErrorCode.REQUIRED_COMPONENT_MISSING.value}: {slot.key} is required", file=output)
@@ -156,11 +157,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     try:
         if args.command == "convert":
-            raise ConverterError(
-                ErrorCode.CONVERSION_NOT_IMPLEMENTED,
-                "Conversion orchestration is intentionally outside the catalog/configuration milestone",
-                manifest=str(args.manifest),
-            )
+            print(json.dumps(convert_manifest(args.manifest), indent=2, sort_keys=True))
+            return 0
         if args.command == "catalog":
             index = SourceIndexer().build()
             write_cache(index)
@@ -191,7 +189,7 @@ def main(argv: list[str] | None = None) -> int:
             plan_path = write_validated_plan(plan)
             unit = resolver.resolved_unit(plan)
             manifest = build_manifest(unit)
-            manifest_path = args.manifest or plan_path.with_name(f"{definition.main_unit.casefold()}-default-manifest.json")
+            manifest_path = args.manifest or plan_path.with_name(f"{definition.main_unit.casefold()}-auto-manifest.json")
             manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
             print(json.dumps({"status": status, "plan": str(plan_path), "manifest": str(manifest_path),
                               "cache_hits": plan.cache_hits, "cache_misses": plan.cache_misses,

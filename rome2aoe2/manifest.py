@@ -12,6 +12,10 @@ SUPPORTED_MATERIALS = {
 }
 
 
+class AutoSelection(str):
+    """A concrete source-first asset path retaining the user's Auto intent."""
+
+
 def select_components(unit: ResolvedUnit, choices: Mapping[str, str | None] | None = None) -> dict[str, ComponentOption | None]:
     choices = choices or {}
     selected = {}
@@ -74,6 +78,7 @@ def build_manifest(unit: ResolvedUnit, choices: Mapping[str, str | None] | None 
     selected = select_components(unit, choices)
     components = {}
     for key, option in sorted(selected.items()):
+        auto = not choices or key not in choices or isinstance(choices[key], AutoSelection)
         components[key] = None if option is None else {
             "key": option.key,
             "source_path": option.source_path,
@@ -81,6 +86,12 @@ def build_manifest(unit: ResolvedUnit, choices: Mapping[str, str | None] | None 
             "socket": option.socket,
             "skeleton": option.skeleton,
             "material_types": list(option.material_types),
+            "selection": {
+                "mode": "deterministic_source_first" if auto else "explicit",
+                "source_semantics": next(slot.selection_semantics for slot in unit.component_slots if slot.key == key),
+                "resolution_policy": "first_distinct_source" if auto else "exact_manifest_asset",
+                "resolved_asset": option.key,
+            },
         }
     return {
         "schema_version": 1,

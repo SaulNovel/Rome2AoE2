@@ -273,7 +273,8 @@ class DependencyResolver:
                     ))
             required = all(slot.get("probability") in (None, "", "1", "1.0") for slot in slots)
             component_slots.append(ComponentSlot(key, tuple(sorted({slot["slot_path"] for slot in slots})),
-                                                 required, options[0].key if options else None, tuple(options)))
+                                                 required, options[0].key if options else None, tuple(options),
+                                                 "runtime_weighted_or_random_source_order; no_authoritative_default_marker"))
         variant = next(item for item in definition.variants if item.get("source_pack"))
         return ResolvedUnit(definition, definition.land_unit, variant["variant"], variant["path"],
                             tuple(component_slots), AnimationProfile(plan.skeleton, plan.animation_family),
