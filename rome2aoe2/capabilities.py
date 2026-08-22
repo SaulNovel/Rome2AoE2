@@ -38,6 +38,18 @@ CAPABILITIES.update({
     ("RENDER", "infantry_static_review_v1"): Capability(
         "RENDER", "infantry_static_review_v1", CapabilityStatus.VALIDATED,
         "approved Hastati oracle camera and captured runtime presentation"),
+    **{("ANIMATION", key): Capability("ANIMATION", key, CapabilityStatus.VALIDATED, evidence)
+       for key, evidence in {
+           "discovery.fragment_state": "Rome II animation fragment state/path provenance",
+           "export.asset_editor_native": "real RmvToGltfExporter runner",
+           "action_preservation": "pre/post native Action fingerprints",
+           "preview.contact_sheet": "nine-sample one-direction cached preview",
+           "idle.native": "native Action; no locomotion container",
+           "walk.external_centering": "outer horizontal container; joint curves unchanged",
+           "attack.native_motion": "native Action and motion preserved",
+           "death.native_fall": "native vertical fall and carrier animation preserved",
+           "animated_weighted_geometry.asset_editor_native_basis": "Principes three-component/two-clip native rest-basis proof",
+       }.items()},
 })
 
 

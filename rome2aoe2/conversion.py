@@ -47,9 +47,9 @@ def load_and_validate_manifest(path: Path, catalog: Catalog | None = None,
     except (OSError, json.JSONDecodeError) as error:
         raise ConverterError(ErrorCode.MANIFEST_SCHEMA_UNSUPPORTED, "Manifest is not valid JSON",
                              path=str(path), error=str(error)) from error
-    if document.get("schema_version") != 1:
+    if document.get("schema_version") not in (1, 2):
         raise ConverterError(ErrorCode.MANIFEST_SCHEMA_UNSUPPORTED, "Unsupported conversion manifest schema",
-                             schema_version=document.get("schema_version"), supported=[1])
+                             schema_version=document.get("schema_version"), supported=[1, 2])
     source = document.get("source")
     components = document.get("components")
     animation = document.get("animation")
@@ -68,6 +68,28 @@ def load_and_validate_manifest(path: Path, catalog: Catalog | None = None,
                              unit=source.get("main_unit"), mismatches=mismatches,
                              manifest_animation=animation,
                              resolved_animation={"skeleton": resolved.animation.skeleton, "family": resolved.animation.family})
+    if document["schema_version"] == 2:
+        from .animation import CATEGORIES, file_sha256
+        animations = document.get("animations")
+        if not isinstance(animations, dict) or set(animations) != set(CATEGORIES):
+            raise ConverterError(ErrorCode.MANIFEST_SCHEMA_UNSUPPORTED,
+                                 "Animated manifest requires exact idle/walk/attack/death selections")
+        for category in CATEGORIES:
+            row = animations[category]
+            if (not isinstance(row, dict) or row.get("category") != category
+                    or not isinstance(row.get("resolved_asset"), str)):
+                raise ConverterError(ErrorCode.MANIFEST_SCHEMA_UNSUPPORTED,
+                                     "Frozen animation selection is malformed", category=category)
+            canonical = canonical_path(row["resolved_asset"])
+            local = DEFAULT_ASSET_CACHE / Path(*canonical.split("/"))
+            if not local.is_file():
+                # Validation/development caches may preserve an exact canonical asset outside assets-v1.
+                from .animation import ASSET_ROOTS, _find_asset
+                local = _find_asset(canonical, ASSET_ROOTS)
+            if local is None or not local.is_file() or row.get("asset_sha256") != file_sha256(local):
+                raise ConverterError(ErrorCode.ANIMATION_DEPENDENCY_MISMATCH,
+                                     "Frozen animation dependency is absent or changed",
+                                     category=category, asset=canonical)
     known = {slot.key for slot in resolved.component_slots}
     if set(components) != known:
         raise ConverterError(ErrorCode.MANIFEST_COMPONENT_INVALID, "Manifest component slots differ from resolved unit",

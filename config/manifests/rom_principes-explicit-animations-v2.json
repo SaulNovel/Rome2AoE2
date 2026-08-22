@@ -1,0 +1,196 @@
+{
+  "animation": {
+    "family": "rome_man_sword_shield",
+    "skeleton": "rome_man_game"
+  },
+  "animations": {
+    "attack": {
+      "asset_sha256": "c315273d0771dd76440f04734cc4ec92d67737d496b300bc86378d076e3a4652",
+      "category": "attack",
+      "context_tags": ["combat-ready", "synchronized", "melee"],
+      "duration": 1.2999999523162842,
+      "fps": 20.0,
+      "frame_count": 27,
+      "horizontal_displacement": 0.0,
+      "locomotion_speed": null,
+      "looping": false,
+      "mode": "explicit",
+      "provenance": "C:/Users/sauln/Desktop/projects/Rome2AoE2/build/cache/rome2aoe2/assets-v1/animations/animation_fragments/rome_man_sword_shield_fragment.txt lines 216-216",
+      "resolution_policy": "exact_manifest_asset",
+      "resolved_asset": "animations/rome2/human/battle/sword_and_shield/combat_ready/sws_sync_atk_005.anim",
+      "resolved_state": "ATTACK_5",
+      "root_displacement": [0.0, 0.0, 0.0],
+      "skeleton": "rome_man_game",
+      "source_states": ["ATTACK_5"],
+      "weapon_bones": ["weapon_02", "weapon_03", "weapon_04"]
+    },
+    "death": {
+      "asset_sha256": "c35a7e0373c3a7943b1c834fe78285d3a5476007a4e4e15b7f925d950878cd37",
+      "category": "death",
+      "context_tags": ["standing"],
+      "duration": 2.133333444595337,
+      "fps": 15.0,
+      "frame_count": 33,
+      "horizontal_displacement": 0.6460252741572883,
+      "locomotion_speed": null,
+      "looping": false,
+      "mode": "explicit",
+      "provenance": "C:/Users/sauln/Desktop/projects/Rome2AoE2/build/cache/rome2aoe2/assets-v1/animations/animation_fragments/rome_man_sword_shield_fragment.txt lines 147-153",
+      "resolution_policy": "exact_manifest_asset",
+      "resolved_asset": "animations/rome2/human/battle/sword_and_shield/death_stand/sws_death_stand_004.anim",
+      "resolved_state": "DEATH_STAND_4",
+      "root_displacement": [0.5920493104495108, -0.7938454002141953, 0.25850777328014374],
+      "skeleton": "rome_man_game",
+      "source_states": ["DEATH_STAND_4", "DEATH_STAND_10"],
+      "weapon_bones": ["weapon_02", "weapon_03", "weapon_04"]
+    },
+    "idle": {
+      "asset_sha256": "18185143458403f15b36bd00c16e3cbcdbe2364ce47fe902a517b36ba3ead2b4",
+      "category": "idle",
+      "context_tags": ["standing"],
+      "duration": 2.799999952316284,
+      "fps": 15.0,
+      "frame_count": 43,
+      "horizontal_displacement": 0.0003392865378932116,
+      "locomotion_speed": null,
+      "looping": true,
+      "mode": "explicit",
+      "provenance": "C:/Users/sauln/Desktop/projects/Rome2AoE2/build/cache/rome2aoe2/assets-v1/animations/animation_fragments/rome_man_sword_shield_fragment.txt lines 6-8",
+      "resolution_policy": "exact_manifest_asset",
+      "resolved_asset": "animations/rome2/human/battle/sword_and_shield/stand/sws_stand.anim",
+      "resolved_state": "STAND",
+      "root_displacement": [-1.316005364060402e-05, 4.470348358154297e-06, -0.0003390312194824219],
+      "skeleton": "rome_man_game",
+      "source_states": ["STAND"],
+      "weapon_bones": ["weapon_02", "weapon_03", "weapon_04"]
+    },
+    "walk": {
+      "asset_sha256": "f2a874eb836de7c286e164666f530c5878c316630690b617669fb3874516688f",
+      "category": "walk",
+      "context_tags": ["movement"],
+      "duration": 1.100000023841858,
+      "fps": 20.0,
+      "frame_count": 23,
+      "horizontal_displacement": 1.373081661760807,
+      "locomotion_speed": 1.2482560290909674,
+      "looping": true,
+      "mode": "explicit",
+      "provenance": "C:/Users/sauln/Desktop/projects/Rome2AoE2/build/cache/rome2aoe2/assets-v1/animations/animation_fragments/rome_man_sword_shield_fragment.txt lines 52-52",
+      "resolution_policy": "exact_manifest_asset",
+      "resolved_asset": "animations/rome2/human/battle/sword_and_shield/locomotion/sws_walk_162_cm.anim",
+      "resolved_state": "WALK_2",
+      "root_displacement": [2.3283064365386963e-10, 0.0, 1.373081661760807],
+      "skeleton": "rome_man_game",
+      "source_states": ["WALK_2"],
+      "weapon_bones": ["weapon_02", "weapon_03", "weapon_04"]
+    }
+  },
+  "components": {
+    "armour": {
+      "definition": "variantmeshes/_variantmodels/man/armour/roman_hamata.variantmeshdefinition",
+      "key": "variantmeshes/_variantmodels/man/armour/roman_lorica_hamata1.rigid_model_v2",
+      "material_types": ["WeightedDirtmap"],
+      "selection": {
+        "mode": "deterministic_source_first",
+        "resolution_policy": "first_distinct_source",
+        "resolved_asset": "variantmeshes/_variantmodels/man/armour/roman_lorica_hamata1.rigid_model_v2",
+        "source_semantics": "runtime_weighted_or_random_source_order; no_authoritative_default_marker"
+      },
+      "skeleton": "rome_man_game",
+      "socket": null,
+      "source_path": "VariantMeshes/_VariantModels/man/armour/roman_lorica_hamata1.rigid_model_v2"
+    },
+    "body": {
+      "definition": "variantmeshes/_variantmodels/man/skin/roman_game_skin.variantmeshdefinition",
+      "key": "variantmeshes/_variantmodels/man/skin/roman_skin1_shape1.rigid_model_v2",
+      "material_types": ["Weighted", "WeightedSkinDirtmap"],
+      "selection": {
+        "mode": "deterministic_source_first",
+        "resolution_policy": "first_distinct_source",
+        "resolved_asset": "variantmeshes/_variantmodels/man/skin/roman_skin1_shape1.rigid_model_v2",
+        "source_semantics": "runtime_weighted_or_random_source_order; no_authoritative_default_marker"
+      },
+      "skeleton": "rome_man_game",
+      "socket": null,
+      "source_path": "VariantMeshes/_VariantModels/man/skin/roman_skin1_shape1.rigid_model_v2"
+    },
+    "crest": {
+      "definition": "variantmeshes/_variantmodels/man/helmets/roman_konos.variantmeshdefinition",
+      "key": "variantmeshes/_variantmodels/man/crests/phyrgian_crest_1_white.rigid_model_v2",
+      "material_types": ["DefaultMaterial"],
+      "selection": {
+        "mode": "deterministic_source_first",
+        "resolution_policy": "first_distinct_source",
+        "resolved_asset": "variantmeshes/_variantmodels/man/crests/phyrgian_crest_1_white.rigid_model_v2",
+        "source_semantics": "runtime_weighted_or_random_source_order; no_authoritative_default_marker"
+      },
+      "skeleton": "",
+      "socket": "crest_centre",
+      "source_path": "VariantMeshes/_VariantModels/man/crests/phyrgian_crest_1_white.rigid_model_v2"
+    },
+    "helmet": {
+      "definition": "variantmeshes/_variantmodels/man/helmets/roman_konos.variantmeshdefinition",
+      "key": "variantmeshes/_variantmodels/man/helmets/hellenic_konos_2.rigid_model_v2",
+      "material_types": ["WeightedDirtmap"],
+      "selection": {
+        "mode": "deterministic_source_first",
+        "resolution_policy": "first_distinct_source",
+        "resolved_asset": "variantmeshes/_variantmodels/man/helmets/hellenic_konos_2.rigid_model_v2",
+        "source_semantics": "runtime_weighted_or_random_source_order; no_authoritative_default_marker"
+      },
+      "skeleton": "rome_man_game",
+      "socket": null,
+      "source_path": "VariantMeshes/_VariantModels/man/helmets/hellenic_konos_2.rigid_model_v2"
+    },
+    "melee_weapon": {
+      "definition": "variantmeshes/variantmeshdefinitions/roman_principes.variantmeshdefinition",
+      "key": "variantmeshes/_variantmodels/man/weapons/roman_gladius.rigid_model_v2",
+      "material_types": ["DefaultMaterial"],
+      "selection": {
+        "mode": "deterministic_source_first",
+        "resolution_policy": "first_distinct_source",
+        "resolved_asset": "variantmeshes/_variantmodels/man/weapons/roman_gladius.rigid_model_v2",
+        "source_semantics": "runtime_weighted_or_random_source_order; no_authoritative_default_marker"
+      },
+      "skeleton": "",
+      "socket": "weapon_02",
+      "source_path": "VariantMeshes/_VariantModels/man/weapons/roman_gladius.rigid_model_v2"
+    },
+    "missile_weapon": {
+      "definition": "variantmeshes/variantmeshdefinitions/roman_principes.variantmeshdefinition",
+      "key": "variantmeshes/_variantmodels/man/weapons/roman_pilum_light.rigid_model_v2",
+      "material_types": ["DefaultMaterial"],
+      "selection": {
+        "mode": "deterministic_source_first",
+        "resolution_policy": "first_distinct_source",
+        "resolved_asset": "variantmeshes/_variantmodels/man/weapons/roman_pilum_light.rigid_model_v2",
+        "source_semantics": "runtime_weighted_or_random_source_order; no_authoritative_default_marker"
+      },
+      "skeleton": "",
+      "socket": "weapon_05",
+      "source_path": "VariantMeshes/_VariantModels/man/weapons/roman_pilum_light.rigid_model_v2"
+    },
+    "shield": {
+      "definition": "variantmeshes/_variantmodels/man/shield/roman_hastati.variantmeshdefinition",
+      "key": "variantmeshes/_variantmodels/man/shield/roman_early_scutum.rigid_model_v2",
+      "material_types": ["DecalDirtmap"],
+      "selection": {
+        "mode": "deterministic_source_first",
+        "resolution_policy": "first_distinct_source",
+        "resolved_asset": "variantmeshes/_variantmodels/man/shield/roman_early_scutum.rigid_model_v2",
+        "source_semantics": "runtime_weighted_or_random_source_order; no_authoritative_default_marker"
+      },
+      "skeleton": "",
+      "socket": "weapon_03",
+      "source_path": "VariantMeshes/_VariantModels/man/shield/roman_early_scutum.rigid_model_v2"
+    }
+  },
+  "schema_version": 2,
+  "source": {
+    "faction": "rom_rome",
+    "land_unit": "Rom_Principes",
+    "main_unit": "Rom_Principes",
+    "root_vmd": "variantmeshes/variantmeshdefinitions/roman_principes.variantmeshdefinition",
+    "variant": "Roman_Principes"
+  }
+}

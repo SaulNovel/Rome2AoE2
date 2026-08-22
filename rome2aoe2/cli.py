@@ -14,6 +14,8 @@ from .indexer import SourceIndexer, write_cache
 from .dependencies import (DependencyResolver, plan_from_json, plan_json,
                            validated_plan_path, write_validated_plan)
 from .conversion import convert as convert_manifest
+from .animation import CATEGORIES, choose_candidate, discover, enrich_metadata, freeze_animations
+from .preview import generate_preview
 
 
 def print_factions(catalog: Catalog, output: TextIO) -> None:
@@ -124,9 +126,74 @@ def configure(catalog: Catalog, output_path: Path, input_stream: TextIO, output:
     }
     manifest = build_manifest(unit, choices)
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    # The same selected, materialized soldier is the native preview input.
+    output_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    convert_manifest(output_path, catalog)
+    manifest = configure_animation_choices(unit, manifest, input_stream, output)
     output_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(f"Manifest: {output_path}", file=output)
     return manifest
+
+
+def _print_candidate(index, candidate, output):
+    loop = "loop" if candidate.looping else "non-loop"
+    print(f"[{index}] {Path(candidate.resolved_asset).name}", file=output)
+    print(f"    states: {', '.join(candidate.states)}", file=output)
+    print(f"    {candidate.frame_count} frames | {candidate.fps:g} FPS | {candidate.duration:.2f} s | {loop}", file=output)
+    if candidate.category == "walk":
+        print(f"    displacement: {candidate.root_displacement} | horizontal {candidate.horizontal_displacement:.3f} m | speed {candidate.locomotion_speed:.3f} m/s", file=output)
+    print(f"    tags: {', '.join(candidate.context_tags) or 'none derived'}", file=output)
+    print(f"    preview: {candidate.preview_path}", file=output)
+
+
+def configure_animation_choices(unit: ResolvedUnit, manifest: dict, input_stream: TextIO, output: TextIO) -> dict:
+    print("\n------------------------------------------------------------\nANIMATION CONFIGURATION\n------------------------------------------------------------", file=output)
+    groups = enrich_metadata(discover(unit))
+    selections = {}
+    for category in CATEGORIES:
+        group = groups[category]
+        if not group.candidates:
+            raise ConverterError(ErrorCode.ANIMATION_CATEGORY_UNSUPPORTED, "No compatible candidates for required category", category=category)
+        rendered = []
+        for candidate in group.shortlist:
+            candidate, cache_hit, _ = generate_preview(manifest, candidate)
+            rendered.append(candidate)
+            print(f"Preview {'cache hit' if cache_hit else 'generated'}: {candidate.preview_path}", file=output)
+        group = group.__class__(category, tuple(rendered) + group.additional, group.shortlist_size)
+        print(f"\n{category.title()} candidates found: {len(group.candidates)} (showing {len(group.shortlist)}, additional {len(group.additional)})", file=output)
+        for index, candidate in enumerate(group.shortlist, 1):
+            _print_candidate(index, candidate, output)
+        print(f"[A] Auto — recommended: [1] {Path(group.recommendation.resolved_asset).name}", file=output)
+        if group.additional:
+            print("[M] Show more candidates", file=output)
+        while True:
+            value = _prompt(f"Select {category}: ", input_stream, output)
+            if value.casefold() == "m" and group.additional:
+                for index, candidate in enumerate(group.additional, len(group.shortlist) + 1):
+                    candidate, cache_hit, _ = generate_preview(manifest, candidate)
+                    _print_candidate(index, candidate, output)
+                continue
+            try:
+                selections[category] = choose_candidate(group, value)
+                break
+            except ConverterError as error:
+                print(error, file=output)
+    return freeze_animations(manifest, selections)
+
+
+def reconfigure_animations(catalog: Catalog, source_path: Path, output_path: Path,
+                           input_stream: TextIO, output: TextIO) -> dict:
+    original = json.loads(source_path.read_text(encoding="utf-8"))
+    unit = catalog.resolve(original["source"]["main_unit"], original["source"]["faction"])
+    visual = {key: value for key, value in original.items() if key != "animations"}
+    visual["schema_version"] = 1
+    result = configure_animation_choices(unit, visual, input_stream, output)
+    if output_path.resolve() == source_path.resolve():
+        raise ConverterError(ErrorCode.MANIFEST_SCHEMA_UNSUPPORTED, "Reconfiguration requires a distinct output unless overwrite semantics are added")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    print(f"Manifest: {output_path}", file=output)
+    return result
 
 
 def parser() -> argparse.ArgumentParser:
@@ -142,6 +209,9 @@ def parser() -> argparse.ArgumentParser:
     inspect.add_argument("--dependencies", action="store_true")
     configure_command = commands.add_parser("configure")
     configure_command.add_argument("--output", type=Path, default=Path("rome2aoe2-manifest.json"))
+    reconfigure = commands.add_parser("configure-animations")
+    reconfigure.add_argument("manifest", type=Path)
+    reconfigure.add_argument("--output", type=Path, required=True)
     convert = commands.add_parser("convert")
     convert.add_argument("manifest", type=Path)
     catalog_command = commands.add_parser("catalog")
@@ -158,6 +228,10 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "convert":
             print(json.dumps(convert_manifest(args.manifest), indent=2, sort_keys=True))
+            return 0
+        if args.command == "configure-animations":
+            catalog = load_default_catalog(args.catalog)
+            reconfigure_animations(catalog, args.manifest, args.output, sys.stdin, sys.stdout)
             return 0
         if args.command == "catalog":
             index = SourceIndexer().build()
