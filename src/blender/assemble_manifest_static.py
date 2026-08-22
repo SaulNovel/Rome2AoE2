@@ -2,6 +2,7 @@
 import argparse
 import json
 import math
+import os
 import sys
 from pathlib import Path
 
@@ -274,7 +275,7 @@ def exact_material_report(document):
 
 def exact_render(scene, document, output, filename, size):
     runtime.OUT = output
-    runtime.AOV = output / "aov-working"
+    runtime.AOV = output / "aov-working" / str(os.getpid())
     runtime.OUT.mkdir(parents=True, exist_ok=True); runtime.AOV.mkdir(parents=True, exist_ok=True)
     runtime.RESOLUTION = size
     scene.render.resolution_x = scene.render.resolution_y = size
