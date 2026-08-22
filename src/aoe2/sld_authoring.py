@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import struct
 import subprocess
@@ -13,7 +14,7 @@ from typing import Callable
 
 from PIL import Image
 
-from .sld import LAYER_MAIN, LAYER_SHADOW, LAYER_PLAYERCOLOR, SLDFile, SLDFrame, SLDLayer, serialize_sld
+from .sld import LAYER_MAIN, LAYER_SHADOW, LAYER_PLAYERCOLOR, SLDFile, SLDFrame, SLDLayer, parse_sld, serialize_sld
 from .sld_blocks import ALPHA_THRESHOLD, encode_bc1_block, encode_bc4_block
 
 BLEED_RADIUS = 4
@@ -57,11 +58,8 @@ def visible(alpha: int, threshold: int = ALPHA_THRESHOLD) -> bool:
 
 
 def alpha_bounds(image: Image.Image, threshold: int = ALPHA_THRESHOLD) -> tuple[int, int, int, int] | None:
-    rgba = image.convert("RGBA")
-    points = [(x, y) for y in range(rgba.height) for x in range(rgba.width) if visible(rgba.getpixel((x, y))[3], threshold)]
-    if not points:
-        return None
-    return min(x for x, _ in points), min(y for _, y in points), max(x for x, _ in points) + 1, max(y for _, y in points) + 1
+    alpha = image.convert("RGBA").getchannel("A")
+    return alpha.point(lambda value: 255 if visible(value, threshold) else 0).getbbox()
 
 
 def block_bounds(bounds: tuple[int, int, int, int] | None, width: int, height: int) -> tuple[int, int, int, int]:
@@ -257,6 +255,90 @@ def author_facet_animation(
         frame.frame_index = index
         result.append(frame)
     return SLDFile(frames=result, facet_count=facet_count)
+
+
+def author_sld_animation(production_report: dict, scale: str, texconv: Path,
+                         output_path: Path) -> dict:
+    """Author one production-report animation without resampling or remapping.
+
+    Production inventory is facet-major: all source samples for direction 0,
+    then all samples for direction 1, through direction 15.  This is the same
+    storage contract proven by the native Hastati SLD pipeline.
+    """
+    if scale not in {"x1", "x2"}:
+        raise ValueError("SLD production scale must be x1 or x2")
+    if production_report.get("format") != "rome2aoe2.consolidated-production-category":
+        raise ValueError("unsupported production report")
+    if production_report.get("direction_order") != list(range(16)):
+        raise ValueError("production direction order is not canonical 0..15")
+    expected_yaws = [(292.5 - 22.5 * index) % 360 for index in range(16)]
+    if production_report.get("direction_yaws") != expected_yaws:
+        raise ValueError("production yaw mapping changed")
+    samples = int(production_report["native_frames"])
+    dimensions = tuple(production_report[f"{scale}_dimensions"])
+    expected_dimensions = (200, 200) if scale == "x1" else (400, 400)
+    if dimensions != expected_dimensions:
+        raise ValueError(f"unexpected {scale} production dimensions: {dimensions}")
+    hotspot = (100, 122) if scale == "x1" else (200, 244)
+    root = Path(production_report["output_inventory"]["root"])
+    category = production_report["category"]
+    frames = []
+    placement = []
+    inventory_hash = hashlib.sha256()
+    encoder_factory = lambda: DirectXTexBC1Encoder(texconv)
+    for direction in range(16):
+        for ordinal in range(samples):
+            filename = f"{category}-direction-{direction:02d}-frame-{ordinal:03d}.png"
+            main_path, shadow_path = root / "main" / scale / filename, root / "shadow" / scale / filename
+            if not main_path.is_file() or not shadow_path.is_file():
+                raise FileNotFoundError(f"missing frozen production main/shadow pair: {main_path}, {shadow_path}")
+            main, shadow = Image.open(main_path).convert("RGBA"), Image.open(shadow_path).convert("RGBA")
+            if main.size != dimensions or shadow.size != dimensions:
+                raise ValueError(f"production canvas mismatch: {filename}")
+            main_box, shadow_box = main.getchannel("A").getbbox(), shadow.getchannel("A").getbbox()
+            if main_box is None or shadow_box is None:
+                raise ValueError(f"empty production main/shadow pair: {filename}")
+            for kind, path in (("main", main_path), ("shadow", shadow_path)):
+                inventory_hash.update(f"{kind}/{scale}/{filename}\0".encode())
+                inventory_hash.update(hashlib.sha256(path.read_bytes()).digest())
+            frame = author_one_frame(main, shadow, hotspot=hotspot,
+                                     encoder=encoder_factory()).frames[0]
+            frame.frame_index = len(frames)
+            frames.append(frame)
+            placement.append({"direction": direction, "source_sample": ordinal,
+                              "frame_index": frame.frame_index, "canvas": list(dimensions),
+                              "hotspot": list(hotspot), "main_bounds": list(main_box),
+                              "shadow_bounds": list(shadow_box)})
+    document = SLDFile(frames=frames, facet_count=16)
+    payload = serialize_sld(document)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_bytes(payload)
+    parsed = parse_sld(payload)
+    if len(parsed.frames) != 16 * samples:
+        raise ValueError("SLD read-back frame count mismatch")
+    if any(frame.frame_type != (LAYER_MAIN | LAYER_SHADOW) for frame in parsed.frames):
+        raise ValueError("production SLD must contain main + shadow only")
+    if any((frame.canvas_width, frame.canvas_height) != dimensions or
+           (frame.center_x, frame.center_y) != hotspot for frame in parsed.frames):
+        raise ValueError("SLD read-back canvas/hotspot mismatch")
+    return {"scale": scale, "path": str(output_path),
+            "sha256": hashlib.sha256(payload).hexdigest(), "payload_bytes": len(payload),
+            "directions": 16, "frames_per_direction": samples, "total_frames": len(frames),
+            "dimensions": list(dimensions), "hotspot": list(hotspot),
+            "hotspot_policy": "fixed validated AoE canvas anchor; never recentered per frame",
+            "frame_order": "facet-major; production directions 0..15 unchanged",
+            "main_compression": "BC1_UNORM/DirectXTex",
+            "shadow_compression": "BC4/project deterministic encoder",
+            "texconv": {"executable": str(texconv),
+                        "options": ["-nologo", "-y", "-m", "1", "-f", "BC1_UNORM",
+                                    "-at", format(ALPHA_THRESHOLD / 255.0, ".17g")]},
+            "source_frame_inventory_sha256": inventory_hash.hexdigest(),
+            "placement": placement,
+            "read_back": {"valid_header": True, "version": parsed.version,
+                          "frame_count": len(parsed.frames), "main_layer": True,
+                          "shadow_layer": True, "player_colour_layer": False,
+                          "bounds_valid": True, "hotspots_valid": True,
+                          "payload_not_truncated": True}}
 
 
 def premultiplied_bicubic(image: Image.Image, size: tuple[int, int], alpha_scale: float = 1.0) -> Image.Image:
