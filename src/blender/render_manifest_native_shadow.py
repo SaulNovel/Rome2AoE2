@@ -10,7 +10,9 @@ from downsample_rgba import downsample_rgba
 from render_manifest_native_production import SCALE,TARGET_Z,DIRECTIONS,bounds,camera,frame,fingerprint
 from rome2aoe2.errors import ConverterError
 from rome2aoe2.visual_scale import (VISUAL_SCALE_MAX, VISUAL_SCALE_MIN,
+                                    confirm_canvas_bounds,
                                     effective_orthographic_scale,
+                                    outside_alpha_metrics, overscan_camera,
                                     validate_canvas_bounds, validate_visual_scale)
 MASTER=800
 def args():
@@ -19,6 +21,19 @@ def array(path):
  im=bpy.data.images.load(str(path.resolve()),check_existing=False);v=np.empty(len(im.pixels),np.float32);im.pixels.foreach_get(v);r=v.reshape((im.size[1],im.size[0],4))[::-1].copy();bpy.data.images.remove(im);return r
 def save(path,rgba):path.parent.mkdir(parents=True,exist_ok=True);runtime.png_rgba(path,rgba.astype(np.float32))
 def down(rgba,size):return np.asarray(downsample_rgba(rgba.reshape(-1).tolist(),rgba.shape[1],rgba.shape[0],size,size,"bicubic"),np.float32).reshape((size,size,4))
+def confirm_edge(scene,meshes,raw,a,stem,visual_scale,effective_scale,shadow_bounds,direction,ordinal):
+ spec=overscan_camera([400,400],effective_scale);validation=a.output_root/"validation/overscan/shadow/x2"/stem;original_ortho=scene.camera.data.ortho_scale;original_resolution=(scene.render.resolution_x,scene.render.resolution_y);original_path=scene.render.filepath
+ try:
+  scene.camera.data.ortho_scale=spec["orthographic_scale"];scene.render.resolution_x=scene.render.resolution_y=spec["resolution"][1]*2;scene.render.filepath=str(raw.resolve())
+  for m in meshes:m.visible_shadow=False
+  bpy.ops.render.render(write_still=True);baseline=array(raw);base=baseline[...,:3]@np.array((.2126,.7152,.0722),np.float32)
+  for m in meshes:m.visible_shadow=True
+  bpy.ops.render.render(write_still=True);rgba=array(raw);lum=rgba[...,:3]@np.array((.2126,.7152,.0722),np.float32);alpha=np.clip(np.maximum(0,base-lum)/np.maximum(base,1e-5)/.72,0,1)*.38;alpha[alpha<.025]=0;out=np.zeros((*alpha.shape,4),np.float32);out[...,3]=alpha;overscan=down(out,spec["resolution"][1]);save(validation,overscan)
+ finally:
+  scene.camera.data.ortho_scale=original_ortho;scene.render.resolution_x,scene.render.resolution_y=original_resolution;scene.render.filepath=original_path
+  for m in meshes:m.visible_shadow=True
+ encoded=array(validation);outside=outside_alpha_metrics(encoded[...,3].reshape(-1).tolist(),spec["resolution"],spec["production_crop"])
+ return confirm_canvas_bounds(visual_scale,a.category,direction,ordinal,"shadow",shadow_bounds,[400,400],spec,outside)
 def setup(scene,meshes):
  scene.render.engine="CYCLES";scene.cycles.samples=24;scene.cycles.use_denoising=True;scene.render.resolution_x=scene.render.resolution_y=MASTER;scene.render.resolution_percentage=100;scene.render.image_settings.file_format="PNG";scene.render.film_transparent=False;scene.display_settings.display_device="sRGB";scene.view_settings.view_transform="Raw";scene.view_settings.look="None";scene.view_settings.exposure=0;scene.view_settings.gamma=1
  world=bpy.data.worlds.new("ProductionShadowWorld");scene.world=world;world.use_nodes=True;world.node_tree.nodes["Background"].inputs["Color"].default_value=(1,1,1,1);world.node_tree.nodes["Background"].inputs["Strength"].default_value=.35
@@ -43,10 +58,12 @@ def main():
    if not x1.is_file() or not x2.is_file():
     bpy.ops.render.render(write_still=True);rgba=array(raw);lum=rgba[...,:3]@np.array((.2126,.7152,.0722),np.float32);alpha=np.clip(np.maximum(0,base-lum)/np.maximum(base,1e-5)/.72,0,1)*.38;alpha[alpha<.025]=0;out=np.zeros((*alpha.shape,4),np.float32);out[...,3]=alpha;save(x2,down(out,400));save(x1,down(out,200))
    shadow_bounds=bounds(x2)
-   try:validate_canvas_bounds(visual_scale,a.category,direction,ordinal,shadow_bounds,[400,400])
+   canvas_validation=validate_canvas_bounds(visual_scale,a.category,direction,ordinal,shadow_bounds,[400,400])
+   try:
+    if canvas_validation["edge_contact"]:canvas_validation=confirm_edge(scene,meshes,raw,a,stem,visual_scale,effective_scale,shadow_bounds,direction,ordinal)
    except ConverterError as error:
     a.report.parent.mkdir(parents=True,exist_ok=True);a.report.write_text(json.dumps({"failure":error.as_dict()},indent=2,sort_keys=True)+"\n");raise
-   records.append({"direction":direction,"output_frame":ordinal,"source_sample":ordinal,"blender_frame":value,"shadow_x1":str(x1),"shadow_x2":str(x2),"x2_bounds":shadow_bounds})
- after=fingerprint(action);report={"format":"rome2aoe2.native-production-shadow","version":1,"manifest_hash":a.manifest_hash,"category":a.category,"animation_asset":a.animation_asset,"action_fingerprint_before":before,"action_fingerprint_after":after,"action_preserved":before==after,"native_source_samples":a.source_samples,"native_fps":a.source_fps,"direction_order":directions,"direction_yaws":[DIRECTIONS[i] for i in directions],"visual_scale":visual_scale,"visual_scale_min":VISUAL_SCALE_MIN,"visual_scale_max":VISUAL_SCALE_MAX,"canonical_orthographic_scale":canonical_scale,"effective_orthographic_scale":effective_scale,"orthographic_scale":effective_scale,"camera_target_z":TARGET_Z,"canvas":{"x2":[400,400],"x1":[200,200]},"hotspot_policy":{"x1":[100,122],"x2":[200,244],"ground_anchor":"unchanged"},"profile":"fixed-global-cast-shadow-v1","recovered_light_direction":recovered,"fixed_light_direction":light,"records":records,"validation":{"main_shadow_expected_count":len(directions)*a.source_samples,"shadow_count":len(records),"constant_visual_scale":True,"canvas_overflow":False,"action_preserved":before==after}}
+   records.append({"direction":direction,"output_frame":ordinal,"source_sample":ordinal,"blender_frame":value,"shadow_x1":str(x1),"shadow_x2":str(x2),"x2_bounds":shadow_bounds,"canvas_validation":canvas_validation})
+ after=fingerprint(action);edge_contacts=sum(1 for record in records if record["canvas_validation"]["edge_contact"]);overscan_count=sum(1 for record in records if record["canvas_validation"]["overscan_performed"]);report={"format":"rome2aoe2.native-production-shadow","version":1,"manifest_hash":a.manifest_hash,"category":a.category,"animation_asset":a.animation_asset,"action_fingerprint_before":before,"action_fingerprint_after":after,"action_preserved":before==after,"native_source_samples":a.source_samples,"native_fps":a.source_fps,"direction_order":directions,"direction_yaws":[DIRECTIONS[i] for i in directions],"visual_scale":visual_scale,"visual_scale_min":VISUAL_SCALE_MIN,"visual_scale_max":VISUAL_SCALE_MAX,"canonical_orthographic_scale":canonical_scale,"effective_orthographic_scale":effective_scale,"orthographic_scale":effective_scale,"camera_target_z":TARGET_Z,"canvas":{"x2":[400,400],"x1":[200,200]},"hotspot_policy":{"x1":[100,122],"x2":[200,244],"ground_anchor":"unchanged"},"profile":"fixed-global-cast-shadow-v1","recovered_light_direction":recovered,"fixed_light_direction":light,"records":records,"validation":{"main_shadow_expected_count":len(directions)*a.source_samples,"shadow_count":len(records),"constant_visual_scale":True,"edge_contact_count":edge_contacts,"overscan_count":overscan_count,"confirmed_overflow_count":0,"canvas_overflow":False,"action_preserved":before==after}}
  a.report.parent.mkdir(parents=True,exist_ok=True);a.report.write_text(json.dumps(report,indent=2,sort_keys=True)+"\n")
 if __name__=="__main__":main()
