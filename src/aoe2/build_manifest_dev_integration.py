@@ -7,8 +7,10 @@ sys.stdout.reconfigure(encoding="utf-8",errors="replace")
 from aoe2_genie_tooling import GenieWorkspace
 from AoE2ScenarioParser.datasets.trigger_lists import DiplomacyState
 from AoE2ScenarioParser.scenarios.aoe2_de_scenario import AoE2DEScenario
-from aoe2.dat_integration import CATEGORIES,RUNTIME_FIELDS,category_stem,clone_graphic,install_slds,reference_graphic_id,resolve_allocation,sha256,slug
+from aoe2.dat_integration import CATEGORIES,RUNTIME_FIELDS,allocation_key,category_stem,clone_graphic,install_slds,reference_graphic_id,resolve_allocation,sha256,slug
+from aoe2.sld import LAYER_MAIN,LAYER_SHADOW,parse_sld
 from rome2aoe2.conversion import load_and_validate_manifest
+from rome2aoe2.dev_asset_refresh import transactional_replace_assets,validate_existing_integration
 from rome2aoe2.production import PROFILE
 from rome2aoe2.production_reports import resolve_consolidated_category,sld_category_root
 
@@ -24,12 +26,38 @@ def scenario(template,output,report_path,unit_id,profile):
  output.parent.mkdir(parents=True,exist_ok=True);document.write_to_file(str(output));written=AoE2DEScenario.from_file(str(output));counts={str(player):sum(unit.unit_const==unit_id for unit in written.unit_manager.units[player]) for player in (1,2)}
  if counts!={"1":15,"2":15}:raise RuntimeError(f"scenario unit counts changed: {counts}")
  result={"format":"rome2aoe2.dev-integration-scenario","version":1,"scenario":str(output),"unit_id":unit_id,"player_counts":counts,"mutual_enemies":True,"placements":placements};report_path.parent.mkdir(parents=True,exist_ok=True);report_path.write_text(json.dumps(result,indent=2,sort_keys=True)+"\n");return result
+def asset_only(request,args,profile,registry,output_root,mod,scenario_path):
+ key=allocation_key(request.manifest_hash,profile["id"]);allocation=registry["allocations"].get(key)
+ if allocation is None:raise RuntimeError(f"asset-only refresh requires an existing allocation: {key}")
+ dat_path=mod/"resources/_common/dat/empires2_x2_p1.dat";dat_before=sha256(dat_path);scenario_before=sha256(scenario_path);workspace=GenieWorkspace.load(dat_path);unit=workspace.unit_manager.get(allocation["unit_id"])
+ graphics={category:workspace.graphic_manager.get(graphic_id) for category,graphic_id in allocation["graphic_ids"].items()};document=AoE2DEScenario.from_file(str(scenario_path));counts={str(player):sum(item.unit_const==allocation["unit_id"] for item in document.unit_manager.units[player]) for player in range(1,profile["scenario"]["players"]+1)}
+ compatibility=validate_existing_integration(request.manifest,profile,allocation,unit,graphics,counts);unit_name=request.unit.definition.main_unit;graphics_root=mod/"resources/_common/drs/graphics";assets=[]
+ for category in CATEGORIES:
+  record=request.manifest["animations"][category];_,production=resolve_consolidated_category(request,category,args.production_profile);sld_root=sld_category_root(unit_name,request.manifest_hash,category,args.production_profile);sld_report_path=sld_root/f"{category}-sld-report.json"
+  if not sld_report_path.is_file():raise RuntimeError(f"missing validated SLD report: {sld_report_path}")
+  sld_report=json.loads(sld_report_path.read_text());
+  if sld_report.get("production_profile")!=args.production_profile or sld_report.get("production_identity")!=production["production_identity"] or sld_report.get("frames_per_direction")!=record["frame_count"]:raise RuntimeError(f"SLD report identity mismatch: {category}")
+  for scale in ("x1","x2"):
+   encoded=sld_report["encoded"][scale];source=Path(encoded["path"])
+   if not source.is_file() or sha256(source)!=encoded["sha256"]:raise RuntimeError(f"SLD source hash mismatch: {category}/{scale}")
+   parsed=parse_sld(source.read_bytes())
+   dimensions=(200,200) if scale=="x1" else (400,400);hotspot=(100,122) if scale=="x1" else (200,244)
+   if parsed.version!=4 or encoded.get("directions")!=16 or len(parsed.frames)!=16*record["frame_count"] or any(frame.frame_type!=(LAYER_MAIN|LAYER_SHADOW) or (frame.canvas_width,frame.canvas_height)!=dimensions or (frame.center_x,frame.center_y)!=hotspot for frame in parsed.frames):raise RuntimeError(f"SLD structure mismatch: {category}/{scale}")
+   destination=graphics_root/f"{category_stem(unit_name,category)}_{scale}.sld";assets.append({"category":category,"scale":scale,"source":str(source),"destination":str(destination),"sha256":encoded["sha256"]})
+ installed=transactional_replace_assets(assets);dat_after=sha256(dat_path);scenario_after=sha256(scenario_path)
+ if dat_after!=dat_before or scenario_after!=scenario_before:raise RuntimeError("asset-only refresh modified DAT or scenario")
+ result={"format":"rome2aoe2.asset-only-dev-refresh","version":1,"manifest_hash":request.manifest_hash,"production_profile":args.production_profile,"mod":str(mod),"scenario":str(scenario_path),"dat":{"path":str(dat_path),"sha256_before":dat_before,"sha256_after":dat_after,"unchanged":True},"scenario_file":{"path":str(scenario_path),"sha256_before":scenario_before,"sha256_after":scenario_after,"unchanged":True},"compatibility":compatibility,"installed_assets":installed,"validation":{"asset_count":len(installed),"all_hashes_match":all(item["match"] for item in installed),"only_sld_assets_modified":True}}
+ report=args.refresh_report or output_root/"asset-refresh-report.json";report.parent.mkdir(parents=True,exist_ok=True);report.write_text(json.dumps(result,indent=2,sort_keys=True)+"\n");print(report);return
 def main():
- parser=argparse.ArgumentParser();parser.add_argument("manifest",type=Path);parser.add_argument("--expected-manifest-hash",required=True);parser.add_argument("--production-profile",default=PROFILE);parser.add_argument("--source-dat",type=Path,required=True);parser.add_argument("--template-scenario",type=Path,required=True);parser.add_argument("--profile",type=Path,default=ROOT/"config/aoe2/integration_profiles/infantry_melee_visual_test_v1.json");parser.add_argument("--registry",type=Path,default=ROOT/"config/aoe2/integration_allocations.json");args=parser.parse_args()
+ parser=argparse.ArgumentParser();parser.add_argument("manifest",type=Path);parser.add_argument("--expected-manifest-hash",required=True);parser.add_argument("--production-profile",default=PROFILE);parser.add_argument("--source-dat",type=Path);parser.add_argument("--template-scenario",type=Path);parser.add_argument("--profile",type=Path,default=ROOT/"config/aoe2/integration_profiles/infantry_melee_visual_test_v1.json");parser.add_argument("--registry",type=Path,default=ROOT/"config/aoe2/integration_allocations.json");parser.add_argument("--assets-only",action="store_true");parser.add_argument("--existing-mod",type=Path);parser.add_argument("--existing-scenario",type=Path);parser.add_argument("--refresh-report",type=Path);args=parser.parse_args()
  request=load_and_validate_manifest(args.manifest)
  if request.manifest_hash!=args.expected_manifest_hash:raise RuntimeError(f"manifest identity mismatch: {request.manifest_hash}")
- profile=json.loads(args.profile.read_text());registry=json.loads(args.registry.read_text());source_hash=sha256(args.source_dat);workspace=GenieWorkspace.load(args.source_dat);allocation=resolve_allocation(workspace,registry,request.manifest_hash,profile["id"]);unit_name=request.unit.definition.main_unit;display_name=unit_name.split("_",1)[-1].replace("_"," ");template=workspace.unit_manager.get(profile["template_unit_id"]);template_before=snapshot_unit(template)
+ profile=json.loads(args.profile.read_text());registry=json.loads(args.registry.read_text());unit_name=request.unit.definition.main_unit;display_name=unit_name.split("_",1)[-1].replace("_"," ")
  output_root=ROOT/"build/dev-test/rome2aoe2"/slug(unit_name)/request.manifest_hash[:16];mod=output_root/f"Rome2AoE2 {display_name} Dev Test";graphics_root=mod/"resources/_common/drs/graphics";dat_path=mod/"resources/_common/dat/empires2_x2_p1.dat";dat_path.parent.mkdir(parents=True,exist_ok=True)
+ if args.assets_only:
+  mod=args.existing_mod or mod;scenario_path=args.existing_scenario or output_root/f"Rome2AoE2{display_name.replace(' ','')}DevTest.aoe2scenario";return asset_only(request,args,profile,registry,output_root,mod,scenario_path)
+ if args.source_dat is None or args.template_scenario is None:parser.error("full integration requires --source-dat and --template-scenario")
+ source_hash=sha256(args.source_dat);workspace=GenieWorkspace.load(args.source_dat);allocation=resolve_allocation(workspace,registry,request.manifest_hash,profile["id"]);template=workspace.unit_manager.get(profile["template_unit_id"]);template_before=snapshot_unit(template)
  sld_reports={};production_reports={}
  for category in CATEGORIES:
   record=request.manifest["animations"][category];production_path,production=resolve_consolidated_category(request,category,args.production_profile);sld_path=sld_category_root(unit_name,request.manifest_hash,category,args.production_profile)/f"{category}-sld-report.json";sld=json.loads(sld_path.read_text())
