@@ -40,6 +40,7 @@ def resolve_production_profile(name: str = PROFILE) -> dict[str, Any]:
     if name == PROFILE:
         return {
             "name": PROFILE,
+            "identity_version": 1,
             "main_illumination": {
                 "captured_environment_yaw_degrees": 0.0,
                 "readability_fill_linear": 0.0,
@@ -89,9 +90,10 @@ def production_identity(manifest_hash: str, category: str, record: dict[str, Any
     visual_scale = validate_visual_scale(visual_scale)
     payload = {"unit": "manifest", "manifest_hash": manifest_hash, "category": category,
                "asset": record["resolved_asset"], "asset_sha256": record["asset_sha256"],
-               "profile": profile["name"],
-               "visual_scale": visual_scale,
-               "attachment_capabilities": profile["attachment_capabilities"]}
+               "profile": profile["name"]}
+    if profile.get("identity_version", 2) >= 2:
+        payload.update({"visual_scale": visual_scale,
+                        "attachment_capabilities": profile["attachment_capabilities"]})
     return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 

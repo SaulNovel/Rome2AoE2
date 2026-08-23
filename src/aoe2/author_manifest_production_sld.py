@@ -8,7 +8,8 @@ from aoe2.analyze_sld import decode_frame
 from aoe2.sld import parse_sld
 from aoe2.sld_authoring import author_sld_animation
 from rome2aoe2.conversion import load_and_validate_manifest
-from rome2aoe2.production import PROFILE,category_output
+from rome2aoe2.production import PROFILE
+from rome2aoe2.production_reports import resolve_consolidated_category,sld_category_root
 
 def frame_path(root,kind,scale,category,direction,ordinal):return root/kind/scale/f"{category}-direction-{direction:02d}-frame-{ordinal:03d}.png"
 def tile(image,size=160):
@@ -37,20 +38,18 @@ def validate_visuals(sld_path,production_root,category,scale,samples,review):
   direction,ordinal=divmod(frame_index,samples);main,shadow=decoded[frame_index];source_main=Image.open(frame_path(production_root,"main",scale,category,direction,ordinal));source_shadow=Image.open(frame_path(production_root,"shadow",scale,category,direction,ordinal));metrics.append({"direction":direction,"sample":ordinal,"main":rgba_metrics(source_main,main),"shadow":shadow_metrics(source_shadow,shadow)})
  return {"comparison_sample_count":len(metrics),"samples":metrics,"sheets":[str(direction_sheet),str(temporal_sheet),str(comparison_sheet),str(shadow_sheet)]}
 def main():
- parser=argparse.ArgumentParser();parser.add_argument("manifest",type=Path);parser.add_argument("category",choices=("idle","walk","attack","death"));parser.add_argument("--expected-manifest-hash",required=True);parser.add_argument("--texconv",type=Path,required=True);args=parser.parse_args();request=load_and_validate_manifest(args.manifest)
+ parser=argparse.ArgumentParser();parser.add_argument("manifest",type=Path);parser.add_argument("category",choices=("idle","walk","attack","death"));parser.add_argument("--expected-manifest-hash",required=True);parser.add_argument("--production-profile",default=PROFILE);parser.add_argument("--texconv",type=Path,required=True);args=parser.parse_args();request=load_and_validate_manifest(args.manifest)
  if request.manifest_hash!=args.expected_manifest_hash:raise RuntimeError(f"manifest identity mismatch: {request.manifest_hash}")
- record=request.manifest["animations"][args.category];production_root=category_output(request.unit.definition.main_unit,request.manifest_hash,args.category,record);report_path=production_root/"production-report.json"
- if not report_path.is_file():raise FileNotFoundError(f"missing frozen production report: {report_path}")
- production=json.loads(report_path.read_text())
- for key,expected in (("manifest_hash",request.manifest_hash),("category",args.category),("exact_animation_asset",record["resolved_asset"]),("camera_profile",PROFILE)):
+ record=request.manifest["animations"][args.category];report_path,production=resolve_consolidated_category(request,args.category,args.production_profile);production_root=Path(production["category_root"])
+ for key,expected in (("manifest_hash",request.manifest_hash),("category",args.category),("exact_animation_asset",record["resolved_asset"]),("production_profile",args.production_profile)):
   if production.get(key)!=expected:raise RuntimeError(f"production report {key} mismatch: {production.get(key)!r} != {expected!r}")
- unit=request.unit.definition.main_unit;output_root=ROOT/"build/sld/rome2aoe2"/unit.casefold()/request.manifest_hash[:16]/args.category;review=output_root/"review";encoded={}
+ unit=request.unit.definition.main_unit;output_root=sld_category_root(unit,request.manifest_hash,args.category,args.production_profile);review=output_root/"review";encoded={}
  for scale in ("x1","x2"):
   output=output_root/f"{unit.casefold()}-{args.category}_{scale}.sld";first=author_sld_animation(production,scale,args.texconv,output);repeat=output_root/"determinism-repeat"/output.name;second=author_sld_animation(production,scale,args.texconv,repeat)
   first["determinism"]={"repeat_path":str(repeat),"repeat_sha256":second["sha256"],"identical":first["sha256"]==second["sha256"]}
   if not first["determinism"]["identical"]:raise RuntimeError(f"nondeterministic SLD output: {args.category}/{scale}")
   first["decoded_validation"]=validate_visuals(output,production_root,args.category,scale,record["frame_count"],review);encoded[scale]=first
  x1=parse_sld(Path(encoded["x1"]["path"]).read_bytes());x2=parse_sld(Path(encoded["x2"]["path"]).read_bytes());rep=record["frame_count"]//2;main1,_=decode_frame(x1,13*record["frame_count"]+rep);main2,_=decode_frame(x2,13*record["frame_count"]+rep);comparison=review/f"{args.category}-decoded-x1-x2.png";sheet([("x1",[main1]),("x2",[main2])],comparison,f"{args.category} - decoded native x1/x2")
- result={"format":"rome2aoe2.production-sld-authoring","version":1,"writer_version":"direct-sld-production-v1","unit":unit,"manifest_hash":request.manifest_hash,"animation_category":args.category,"source_animation":record["resolved_asset"],"production_profile":PROFILE,"source_production_report":str(report_path),"directions":16,"frames_per_direction":record["frame_count"],"total_frames":16*record["frame_count"],"frame_order":"facet-major; production direction 0..15 unchanged","player_colour":False,"layers":["main","shadow"],"encoded":encoded,"decoded_x1_x2_sheet":str(comparison),"validation":{"production_identity":True,"main_shadow_parity":True,"constant_hotspot":True,"constant_canvas":True,"direction_order_preserved":True,"read_back":True,"deterministic":True}}
+ result={"format":"rome2aoe2.production-sld-authoring","version":2,"writer_version":"direct-sld-production-v1","unit":unit,"manifest_hash":request.manifest_hash,"animation_category":args.category,"source_animation":record["resolved_asset"],"production_profile":args.production_profile,"production_identity":production["production_identity"],"source_production_report":str(report_path),"directions":16,"frames_per_direction":record["frame_count"],"total_frames":16*record["frame_count"],"frame_order":"facet-major; production direction 0..15 unchanged","player_colour":False,"layers":["main","shadow"],"encoded":encoded,"decoded_x1_x2_sheet":str(comparison),"validation":{"production_identity":True,"main_shadow_parity":True,"constant_hotspot":True,"constant_canvas":True,"direction_order_preserved":True,"read_back":True,"deterministic":True}}
  report=output_root/f"{args.category}-sld-report.json";report.write_text(json.dumps(result,indent=2,sort_keys=True)+"\n");print(report)
 if __name__=="__main__":main()
