@@ -32,9 +32,23 @@ def static_visual_manifest(manifest: Mapping[str, Any]) -> dict[str, Any]:
     return document
 
 
+def static_assembly_manifest(manifest: Mapping[str, Any]) -> dict[str, Any]:
+    """Normalize only camera-only appearance data out of assembly identity."""
+    document = static_visual_manifest(manifest)
+    appearance = document.get("appearance")
+    if isinstance(appearance, dict) and "visual_scale" in appearance:
+        remaining = dict(appearance)
+        remaining.pop("visual_scale")
+        if remaining:
+            document["appearance"] = remaining
+        else:
+            document.pop("appearance")
+    return document
+
+
 def static_assembly_identity(manifest: Mapping[str, Any],
                              blade_capability: str = V1_BLADE_CAPABILITY) -> str:
-    visual_digest = manifest_digest(static_visual_manifest(manifest))
+    visual_digest = manifest_digest(static_assembly_manifest(manifest))
     if blade_capability == V1_BLADE_CAPABILITY:
         return visual_digest
     if blade_capability not in {V2_BLADE_CAPABILITY, V3_BLADE_CAPABILITY}:

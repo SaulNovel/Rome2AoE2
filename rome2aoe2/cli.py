@@ -16,6 +16,8 @@ from .dependencies import (DependencyResolver, plan_from_json, plan_json,
 from .conversion import convert as convert_manifest
 from .animation import CATEGORIES, choose_candidate, discover, enrich_metadata, freeze_animations
 from .preview import generate_preview
+from .visual_scale import (VISUAL_SCALE_MAX, VISUAL_SCALE_MIN,
+                           validate_visual_scale)
 
 
 def print_factions(catalog: Catalog, output: TextIO) -> None:
@@ -117,6 +119,32 @@ def choose_component(slot: ComponentSlot, input_stream: TextIO, output: TextIO) 
         print(f"{ErrorCode.COMPONENT_NOT_FOUND.value}: invalid option {value!r} for {slot.key}", file=output)
 
 
+def choose_visual_scale(input_stream: TextIO, output: TextIO) -> tuple[float, bool]:
+    print("\nAppearance\nVisual size:", file=output)
+    print("[A] Standard / Auto  1.00", file=output)
+    print("[1] Small visual     0.96", file=output)
+    print("[2] Standard visual  1.00", file=output)
+    print("[3] Large visual     1.04", file=output)
+    print("[4] Custom", file=output)
+    while True:
+        selection = _prompt("Select visual size: ", input_stream, output).casefold()
+        if selection == "a":
+            return 1.0, False
+        presets = {"1": .96, "2": 1.0, "3": 1.04}
+        if selection in presets:
+            return presets[selection], True
+        if selection == "4":
+            raw = _prompt(
+                f"Enter visual scale [{VISUAL_SCALE_MIN:.2f} - {VISUAL_SCALE_MAX:.2f}]: ",
+                input_stream, output)
+            try:
+                return validate_visual_scale(float(raw)), True
+            except (ValueError, ConverterError) as error:
+                print(error, file=output)
+                continue
+        print("Invalid visual size selection", file=output)
+
+
 def configure(catalog: Catalog, output_path: Path, input_stream: TextIO, output: TextIO) -> dict:
     faction = choose_faction(catalog, input_stream, output)
     unit = choose_unit(catalog, input_stream, output, faction)
@@ -124,7 +152,9 @@ def configure(catalog: Catalog, output_path: Path, input_stream: TextIO, output:
         slot.key: choose_component(slot, input_stream, output)
         for slot in unit.component_slots
     }
-    manifest = build_manifest(unit, choices)
+    visual_scale, visual_scale_explicit = choose_visual_scale(input_stream, output)
+    manifest = build_manifest(unit, choices, visual_scale,
+                              visual_scale_explicit=visual_scale_explicit)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     # The same selected, materialized soldier is the native preview input.
     output_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")

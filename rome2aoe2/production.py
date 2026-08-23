@@ -11,6 +11,9 @@ from .conversion import DEFAULT_BLENDER, ROOT, convert, load_and_validate_manife
 from .errors import ConverterError, ErrorCode
 from .native_assembly import (V1_BLADE_CAPABILITY, assemble_native,
                               static_assembly_identity)
+from .visual_scale import (VISUAL_SCALE_MAX, VISUAL_SCALE_MIN,
+                           effective_orthographic_scale, validate_visual_scale,
+                           visual_scale_from_manifest)
 
 PROFILE = "aoe2-infantry-animation-production-v1"
 PROFILE_ROOT = ROOT / "config/render_profiles"
@@ -18,6 +21,19 @@ EXPECTED_DIRECTIONS = [(292.5 - 22.5 * index) % 360 for index in range(16)]
 ORTHOGRAPHIC_SCALE = 7.27480212108078
 CAMERA_TARGET_Z = 0.8503072261810303
 OUTPUT_ROOT = ROOT / "build/production/rome2aoe2"
+
+
+def _raise_render_failure(report: Path, fallback_code: ErrorCode, message: str,
+                          **context: Any) -> None:
+    if report.is_file():
+        try:
+            failure = json.loads(report.read_text()).get("failure")
+            if isinstance(failure, dict) and failure.get("code") in ErrorCode._value2member_map_:
+                raise ConverterError(ErrorCode(failure["code"]), message,
+                                     **failure.get("context", {}))
+        except (OSError, json.JSONDecodeError):
+            pass
+    raise ConverterError(fallback_code, message, **context)
 
 
 def resolve_production_profile(name: str = PROFILE) -> dict[str, Any]:
@@ -43,9 +59,9 @@ def resolve_production_profile(name: str = PROFILE) -> dict[str, Any]:
 
 
 def category_output(unit: str, manifest_hash: str, category: str, record: dict[str, Any],
-                    profile_name: str = PROFILE) -> Path:
+                    profile_name: str = PROFILE, visual_scale: float = 1.0) -> Path:
     profile = resolve_production_profile(profile_name)
-    identity = production_identity(manifest_hash, category, record, profile_name)
+    identity = production_identity(manifest_hash, category, record, profile_name, visual_scale)
     return OUTPUT_ROOT / unit.casefold() / manifest_hash[:16] / category / profile["name"] / identity[:16]
 
 
@@ -68,11 +84,13 @@ def frozen_candidate(category: str, record: dict[str, Any]) -> AnimationCandidat
 
 
 def production_identity(manifest_hash: str, category: str, record: dict[str, Any],
-                        profile_name: str = PROFILE) -> str:
+                        profile_name: str = PROFILE, visual_scale: float = 1.0) -> str:
     profile = resolve_production_profile(profile_name)
+    visual_scale = validate_visual_scale(visual_scale)
     payload = {"unit": "manifest", "manifest_hash": manifest_hash, "category": category,
                "asset": record["resolved_asset"], "asset_sha256": record["asset_sha256"],
                "profile": profile["name"],
+               "visual_scale": visual_scale,
                "attachment_capabilities": profile["attachment_capabilities"]}
     return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
@@ -87,6 +105,8 @@ def render_manifest(path: Path, expected_hash: str | None = None,
         raise ConverterError(ErrorCode.MANIFEST_UNIT_MISMATCH, "Frozen production manifest hash changed",
                              expected=expected_hash, actual=request.manifest_hash)
     blade_capability = profile["attachment_capabilities"]["one_handed_blade/weapon_02"]
+    visual_scale = visual_scale_from_manifest(request.manifest)
+    canonical_ortho = profile.get("camera", {}).get("orthographic_scale", ORTHOGRAPHIC_SCALE)
     static_identity = static_assembly_identity(request.manifest, blade_capability)
     static_input = ROOT / "build/conversions" / request.unit.definition.main_unit.casefold() / static_identity / "static-assembly-input.json"
     if not static_input.is_file():
@@ -98,7 +118,12 @@ def render_manifest(path: Path, expected_hash: str | None = None,
                 blade_capability=blade_capability)
     summary = {"format": "rome2aoe2.production-render-set", "version": 1,
                "manifest": str(path), "manifest_hash": request.manifest_hash,
-               "profile": profile["name"], "categories": {}}
+               "profile": profile["name"], "visual_scale": visual_scale,
+               "visual_scale_min": VISUAL_SCALE_MIN, "visual_scale_max": VISUAL_SCALE_MAX,
+               "canonical_orthographic_scale": canonical_ortho,
+               "effective_orthographic_scale": effective_orthographic_scale(
+                   visual_scale, canonical_ortho),
+               "categories": {}}
     if not categories or any(category not in {"idle", "walk", "attack", "death"} for category in categories):
         raise ValueError("production categories must be idle/walk/attack/death")
     for category in categories:
@@ -106,7 +131,7 @@ def render_manifest(path: Path, expected_hash: str | None = None,
         candidate = frozen_candidate(category, record)
         blend, assembly = assemble_native(request.manifest, candidate, blender, blade_capability)
         output = category_output(request.unit.definition.main_unit, request.manifest_hash, category, record,
-                                 profile["name"])
+                                 profile["name"], visual_scale)
         report = output / "render-report.json"
         output.mkdir(parents=True, exist_ok=True)
         command = [str(blender), "--background", "--python",
@@ -115,12 +140,14 @@ def render_manifest(path: Path, expected_hash: str | None = None,
                    "--output-root", str(output), "--report", str(report),
                    "--category", category, "--manifest-hash", request.manifest_hash,
                    "--profile-name", profile["name"],
+                   "--visual-scale", str(visual_scale),
                    "--animation-asset", record["resolved_asset"], "--source-samples", str(record["frame_count"]),
                    "--source-fps", str(record["fps"]), "--action-fingerprint", assembly["action_fingerprint_before"]]
         result = subprocess.run(command, capture_output=True, text=True)
         if result.returncode or not report.is_file():
-            raise ConverterError(ErrorCode.PREVIEW_GENERATION_FAILED, "Production rendering failed",
-                                 category=category, stderr=result.stderr[-4000:], stdout=result.stdout[-4000:])
+            _raise_render_failure(report, ErrorCode.PREVIEW_GENERATION_FAILED,
+                                  "Production rendering failed", category=category,
+                                  stderr=result.stderr[-4000:], stdout=result.stdout[-4000:])
         shadow_report = output / "shadow-report.json"
         shadow_command = [str(blender), "--background", "--python",
                           str(ROOT / "src/blender/render_manifest_native_shadow.py"), "--",
@@ -129,10 +156,13 @@ def render_manifest(path: Path, expected_hash: str | None = None,
                           "--manifest-hash", request.manifest_hash, "--animation-asset", record["resolved_asset"],
                           "--source-samples", str(record["frame_count"]), "--source-fps", str(record["fps"]),
                           "--action-fingerprint", assembly["action_fingerprint_before"]]
+        shadow_command.extend(["--visual-scale", str(visual_scale)])
+        shadow_command.extend(["--canonical-orthographic-scale", str(canonical_ortho)])
         shadow_result = subprocess.run(shadow_command, capture_output=True, text=True)
         if shadow_result.returncode or not shadow_report.is_file():
-            raise ConverterError(ErrorCode.PREVIEW_GENERATION_FAILED, "Production shadow rendering failed",
-                                 category=category, stderr=shadow_result.stderr[-4000:], stdout=shadow_result.stdout[-4000:])
+            _raise_render_failure(shadow_report, ErrorCode.PREVIEW_GENERATION_FAILED,
+                                  "Production shadow rendering failed", category=category,
+                                  stderr=shadow_result.stderr[-4000:], stdout=shadow_result.stdout[-4000:])
         summary["categories"][category] = {"main": json.loads(report.read_text()),
                                             "shadow": json.loads(shadow_report.read_text()),
                                             "assembly": assembly}

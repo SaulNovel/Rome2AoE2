@@ -4,6 +4,7 @@ from typing import Mapping
 
 from .errors import ConverterError, ErrorCode
 from .models import ComponentOption, ResolvedUnit
+from .visual_scale import VISUAL_SCALE_DEFAULT, appearance_record
 
 
 SUPPORTED_MATERIALS = {
@@ -74,7 +75,9 @@ def _validate_option(unit: ResolvedUnit, component: str, option: ComponentOption
         )
 
 
-def build_manifest(unit: ResolvedUnit, choices: Mapping[str, str | None] | None = None) -> dict:
+def build_manifest(unit: ResolvedUnit, choices: Mapping[str, str | None] | None = None,
+                   visual_scale: float = VISUAL_SCALE_DEFAULT, *,
+                   visual_scale_explicit: bool = False) -> dict:
     selected = select_components(unit, choices)
     components = {}
     for key, option in sorted(selected.items()):
@@ -103,6 +106,7 @@ def build_manifest(unit: ResolvedUnit, choices: Mapping[str, str | None] | None 
             "root_vmd": unit.root_vmd,
         },
         "components": components,
+        "appearance": appearance_record(visual_scale, explicit=visual_scale_explicit),
         "animation": {
             "skeleton": unit.animation.skeleton,
             "family": unit.animation.family,

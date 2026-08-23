@@ -7,9 +7,10 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .animation import AnimationCandidate, preview_cache_identity
-from .conversion import DEFAULT_BLENDER, DEFAULT_OUTPUT_ROOT, manifest_digest
+from .conversion import DEFAULT_BLENDER, DEFAULT_OUTPUT_ROOT
 from .errors import ConverterError, ErrorCode
-from .native_assembly import ASSEMBLY_VERSION, assemble_native, static_visual_manifest
+from .native_assembly import (ASSEMBLY_VERSION, assemble_native,
+                              static_assembly_identity)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -54,7 +55,7 @@ def generate_preview(manifest: Mapping[str, Any], candidate: AnimationCandidate,
             report["provenance_version"] = 4
             report_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         return candidate.__class__(**{**candidate.__dict__, "preview_path": str(contact)}), True, report
-    static = DEFAULT_OUTPUT_ROOT / manifest["source"]["main_unit"].casefold() / manifest_digest(static_visual_manifest(manifest)) / "static-unit.blend"
+    static = DEFAULT_OUTPUT_ROOT / manifest["source"]["main_unit"].casefold() / static_assembly_identity(manifest) / "static-unit.blend"
     if not static.is_file():
         raise ConverterError(ErrorCode.PREVIEW_GENERATION_FAILED, "Static configured unit must be converted before animation previews", path=str(static))
     directory.mkdir(parents=True, exist_ok=True)

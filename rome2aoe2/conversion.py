@@ -13,6 +13,7 @@ from .dependencies import DEFAULT_ASSET_CACHE, DependencyResolver, canonical_pat
 from .errors import ConverterError, ErrorCode
 from .indexer import DEFAULT_HELPER, SourceIndexer
 from .manifest import SUPPORTED_MATERIALS, select_components
+from .visual_scale import visual_scale_from_manifest
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -56,6 +57,7 @@ def load_and_validate_manifest(path: Path, catalog: Catalog | None = None,
     if not isinstance(source, dict) or not isinstance(components, dict) or not isinstance(animation, dict):
         raise ConverterError(ErrorCode.MANIFEST_SCHEMA_UNSUPPORTED,
                              "Manifest requires source, components, and animation objects")
+    visual_scale_from_manifest(document)
     catalog = catalog or load_default_catalog()
     resolved = catalog.resolve(source.get("main_unit", ""), source.get("faction"))
     expected = {"main_unit": resolved.definition.main_unit, "land_unit": resolved.land_unit,

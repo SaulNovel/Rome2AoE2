@@ -68,6 +68,10 @@ class ConverterCatalogTests(unittest.TestCase):
         self.assertEqual(1, manifest["schema_version"])
         self.assertEqual("Rom_Hastati", manifest["source"]["main_unit"])
         self.assertEqual("rome_man_game", manifest["animation"]["skeleton"])
+        self.assertEqual(
+            {"capability": "infantry_visual_scale_v1", "mode": "deterministic_default",
+             "reference": "aoe2_infantry_production_baseline", "value": 1.0},
+            manifest["appearance"]["visual_scale"])
         self.assertNotIn("catalog_id", json.dumps(manifest))
 
     def test_structured_invalid_unit_and_component_errors(self):
