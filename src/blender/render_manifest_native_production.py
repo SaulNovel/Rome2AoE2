@@ -15,7 +15,14 @@ SCALE=7.27480212108078; TARGET_Z=0.8503072261810303; MASTER=800
 DIRECTIONS=[(292.5-22.5*i)%360 for i in range(16)]
 
 def args():
- p=argparse.ArgumentParser();p.add_argument("--input-blend",type=Path,required=True);p.add_argument("--static-input",type=Path,required=True);p.add_argument("--output-root",type=Path,required=True);p.add_argument("--report",type=Path,required=True);p.add_argument("--category",required=True);p.add_argument("--manifest-hash",required=True);p.add_argument("--animation-asset",required=True);p.add_argument("--source-samples",type=int,required=True);p.add_argument("--source-fps",type=float,required=True);p.add_argument("--action-fingerprint",required=True);p.add_argument("--directions",default="all");return p.parse_args(sys.argv[sys.argv.index("--")+1:])
+ p=argparse.ArgumentParser();p.add_argument("--input-blend",type=Path,required=True);p.add_argument("--static-input",type=Path,required=True);p.add_argument("--output-root",type=Path,required=True);p.add_argument("--report",type=Path,required=True);p.add_argument("--category",required=True);p.add_argument("--manifest-hash",required=True);p.add_argument("--animation-asset",required=True);p.add_argument("--source-samples",type=int,required=True);p.add_argument("--source-fps",type=float,required=True);p.add_argument("--action-fingerprint",required=True);p.add_argument("--directions",default="all");p.add_argument("--profile-name",default="aoe2-infantry-animation-production-v1");return p.parse_args(sys.argv[sys.argv.index("--")+1:])
+def production_profile(name):
+ if name=="aoe2-infantry-animation-production-v1":return {"name":name,"main_illumination":{"captured_environment_yaw_degrees":0.0,"readability_fill_linear":0.0}}
+ path=ROOT/"config/render_profiles"/f"{name.replace('-','_')}.json"
+ if not path.is_file():raise RuntimeError(f"unknown production profile: {name}")
+ profile=json.loads(path.read_text(encoding="utf-8"))
+ if profile.get("name")!=name:raise RuntimeError("production profile identity mismatch")
+ return profile
 def curves(action):
  return list(action.fcurves) if hasattr(action,"fcurves") else [c for l in action.layers for s in l.strips for b in s.channelbags for c in b.fcurves]
 def fingerprint(action):
@@ -34,7 +41,7 @@ def reduce(source,dest,size):
 def bounds(path):
  im=bpy.data.images.load(str(path.resolve()),check_existing=False);w,h=im.size;a=list(im.pixels)[3::4];pts=[(i%w,h-1-i//w) for i,v in enumerate(a) if v>1/255];bpy.data.images.remove(im);return None if not pts else [min(x for x,y in pts),min(y for x,y in pts),max(x for x,y in pts)+1,max(y for x,y in pts)+1]
 def main():
- a=args();doc=json.loads(a.static_input.read_text());bpy.ops.wm.open_mainfile(filepath=str(a.input_blend.resolve()));scene=bpy.context.scene;arms=[o for o in scene.objects if o.type=="ARMATURE"]
+ a=args();profile=production_profile(a.profile_name);illumination=profile["main_illumination"];doc=json.loads(a.static_input.read_text());bpy.ops.wm.open_mainfile(filepath=str(a.input_blend.resolve()));scene=bpy.context.scene;arms=[o for o in scene.objects if o.type=="ARMATURE"]
  if len(arms)!=1 or len(arms[0].data.bones)!=50:raise RuntimeError("production requires one 50-bone native armature")
  arm=arms[0];action=arm.animation_data.action;before=fingerprint(action)
  if before!=a.action_fingerprint:raise RuntimeError("frozen Action fingerprint mismatch")
@@ -49,13 +56,13 @@ def main():
   for ordinal,value in enumerate(samples):
    frame(scene,value);stem=f"{a.category}-direction-{direction:02d}-frame-{ordinal:03d}.png";master=a.output_root/"main/master"/stem;x1=a.output_root/"main/x1"/stem;x2=a.output_root/"main/x2"/stem
    x1.parent.mkdir(parents=True,exist_ok=True);x2.parent.mkdir(parents=True,exist_ok=True);master.parent.mkdir(parents=True,exist_ok=True)
-   if not x1.is_file() or not x2.is_file():exact.exact_render(scene,doc,master.parent,stem,MASTER);reduce(master,x2,400);reduce(master,x1,200)
+   if not x1.is_file() or not x2.is_file():exact.exact_render(scene,doc,master.parent,stem,MASTER,environment_yaw_degrees=illumination["captured_environment_yaw_degrees"],readability_fill=illumination["readability_fill_linear"]);reduce(master,x2,400);reduce(master,x1,200)
    b1,b2=bounds(x1),bounds(x2)
    if b1 is None or b2 is None:raise RuntimeError("unexpected empty production frame")
    records.append({"direction":direction,"direction_yaw":DIRECTIONS[direction],"output_frame":ordinal,"source_sample":ordinal,"blender_frame":value,"main_x1":str(x1),"main_x2":str(x2),"x1_bounds":b1,"x2_bounds":b2})
    print(json.dumps({"category":a.category,"direction":direction,"frame":ordinal}))
  after=fingerprint(action)
  if after!=before:raise RuntimeError("native Action changed during production render")
- report={"format":"rome2aoe2.native-production-render","version":1,"manifest_hash":a.manifest_hash,"category":a.category,"animation_asset":a.animation_asset,"action":action.name,"action_fingerprint_before":before,"action_fingerprint_after":after,"action_preserved":before==after,"native_source_samples":a.source_samples,"native_fps":a.source_fps,"action_frame_range":[start,end],"rendered_sample_mapping":[{"source_sample":i,"blender_frame":v} for i,v in enumerate(samples)],"direction_order":directions,"direction_yaws":[DIRECTIONS[i] for i in directions],"direction_policy":"fixed camera; rotate Rome2AoE2_FacetRoot","profile":"aoe2-infantry-animation-production-v1","orthographic_scale":SCALE,"camera_target_z":TARGET_Z,"x1_dimensions":[200,200],"x2_dimensions":[400,400],"material_backend":"rome2_exact_material_backend/runtime_material_preparation/frozen captured runtime display","shadow_profile":"pending-fixed-shadow-pass-v1","records":records,"validation":{"armature_count":1,"bone_count":50,"no_empty_main_frames":True,"constant_canvas":True,"x1_x2_frame_parity":True,"action_preserved":before==after}}
+ report={"format":"rome2aoe2.native-production-render","version":1,"manifest_hash":a.manifest_hash,"category":a.category,"animation_asset":a.animation_asset,"action":action.name,"action_fingerprint_before":before,"action_fingerprint_after":after,"action_preserved":before==after,"native_source_samples":a.source_samples,"native_fps":a.source_fps,"action_frame_range":[start,end],"rendered_sample_mapping":[{"source_sample":i,"blender_frame":v} for i,v in enumerate(samples)],"direction_order":directions,"direction_yaws":[DIRECTIONS[i] for i in directions],"direction_policy":"fixed camera; rotate Rome2AoE2_FacetRoot","profile":profile["name"],"main_illumination":illumination,"orthographic_scale":SCALE,"camera_target_z":TARGET_Z,"x1_dimensions":[200,200],"x2_dimensions":[400,400],"material_backend":"rome2_exact_material_backend/runtime_material_preparation/frozen captured runtime display","shadow_profile":"fixed-global-cast-shadow-v1","records":records,"validation":{"armature_count":1,"bone_count":50,"no_empty_main_frames":True,"constant_canvas":True,"x1_x2_frame_parity":True,"action_preserved":before==after}}
  a.report.parent.mkdir(parents=True,exist_ok=True);a.report.write_text(json.dumps(report,indent=2,sort_keys=True)+"\n")
 if __name__=="__main__":main()

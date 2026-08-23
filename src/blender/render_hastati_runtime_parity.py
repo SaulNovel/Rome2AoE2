@@ -263,7 +263,8 @@ def debug_rgba(name,rgb,alpha,active):
     out=np.clip(rgb,0,1).copy(); out[~active]=0; png_rgba(OUT/name,np.concatenate((out,np.clip(alpha,0,1)),axis=-1))
 
 
-def shade(scene, arrays, environment_yaw_degrees=0, output_name="runtime-parity-f03.png", diagnostics=True, region_aov=None, canvas_offset=None, prepared_override=None):
+def shade(scene, arrays, environment_yaw_degrees=0, output_name="runtime-parity-f03.png", diagnostics=True, region_aov=None, canvas_offset=None, prepared_override=None,
+          illumination_yaw_offset_degrees=0.0, readability_fill=0.0):
     diffuse_aov=arrays["diffuse_raw"]; family_aov=arrays["family"]
     # Blender surface alpha is geometric coverage, so texture alpha travels in
     # explicit raw scalar passes rather than being confused with AOV coverage.
@@ -300,7 +301,7 @@ def shade(scene, arrays, environment_yaw_degrees=0, output_name="runtime-parity-
     # uniform scale + translation, so no per-soldier or camera-derived yaw exists.
     axis=np.array(((1,0,0),(0,0,-1),(0,1,0)),np.float32)
     transform=axis
-    angle_yaw=math.radians(environment_yaw_degrees);cy=math.cos(angle_yaw);sy=math.sin(angle_yaw)
+    angle_yaw=math.radians(environment_yaw_degrees+illumination_yaw_offset_degrees);cy=math.cos(angle_yaw);sy=math.sin(angle_yaw)
     Renv=np.array(((cy,-sy,0),(sy,cy,0),(0,0,1)),np.float32)
     L0=transform@(-SUN_DIRECTION_R2);L=Renv@L0; L=L/np.linalg.norm(L)
     Vfield=np.broadcast_to(V,N.shape); reflected=normalize(2*np.sum(N*Vfield,axis=-1,keepdims=True)*N-Vfield)
@@ -316,8 +317,11 @@ def shade(scene, arrays, environment_yaw_degrees=0, output_name="runtime-parity-
     Nenv=N@Renv;Na=normalize(Nenv*np.array((1,4,1),np.float32)); weights=Na*Na; amb=np.zeros_like(N)
     for axis_i in range(3): amb+=weights[...,axis_i,None]*np.where((Na[...,axis_i]<0)[...,None],AMBIENT[axis_i,1],AMBIENT[axis_i,0])
     ambient_diff=amb*D*.004*(1-R)[...,None]
+    # Optional production-policy diagnostic: an orientation-independent diffuse
+    # readability floor.  Zero preserves the captured runtime equations exactly.
+    readability_diff=D*np.float32(readability_fill)
     env_spec=env*env_refl[...,None]*F*2.5
-    diffuse_lighting=ambient_diff+direct_diff; hdr=np.maximum(0,diffuse_lighting+env_spec+direct_spec)
+    diffuse_lighting=ambient_diff+direct_diff+readability_diff; hdr=np.maximum(0,diffuse_lighting+env_spec+direct_spec)
     if np.any(skin_pixels):
         nd=np.sum(N*L,axis=-1)
         wrap=np.clip(nd[...,None]*np.array((.8,.9,.3),np.float32)+np.array((.3,.5,.3),np.float32),0,1)*np.array((.694444,.694444,.444444),np.float32)
@@ -338,7 +342,7 @@ def shade(scene, arrays, environment_yaw_degrees=0, output_name="runtime-parity-
         ndv=np.sum(Vfield*N,axis=-1); ambient_refl=normalize(Vfield-2*N*ndv[...,None]); Ar=normalize((ambient_refl@Renv)*np.array((1,4,1),np.float32)); ramb=np.zeros_like(N)
         for axis_i in range(3): ramb+=Ar[...,axis_i,None]**2*np.where((Ar[...,axis_i]<0)[...,None],AMBIENT[axis_i,1],AMBIENT[axis_i,0])
         grazing=np.clip(1-ndv,0,1)**2*F[...,0]*1.5; lifted=normalize(N+np.array((0,.75,0),np.float32)); skin_ambient_scatter=ramb*grazing[...,None]*np.maximum(0,lifted[...,1,None])
-        skin_hdr=np.maximum(0,skin_ambient_diff+skin_ambient_scatter+skin_direct_diff+skin_back+skin_direct_spec)
+        skin_hdr=np.maximum(0,skin_ambient_diff+skin_ambient_scatter+skin_direct_diff+skin_back+skin_direct_spec+readability_diff)
         hdr=np.where(skin_pixels[...,None],skin_hdr,hdr)
     if diagnostics:
         np.save(AOV/"hdr_linear.npy",hdr.astype(np.float32))
@@ -368,7 +372,7 @@ def shade(scene, arrays, environment_yaw_degrees=0, output_name="runtime-parity-
         values=luminance[mask&active]
         if not len(values): return {"pixels":0,"p10":None,"median":None,"p90":None}
         p=np.percentile(values,(10,50,90));return {"pixels":int(len(values)),"p10":float(p[0]),"median":float(p[1]),"p90":float(p[2])}
-    metrics={"yaw":int(environment_yaw_degrees),"sun_direction":L.tolist(),"body_luminance":stats(active),"clipped_pixel_percentage":float(100*np.count_nonzero(active&np.any(rgb>=.999,axis=-1))/max(np.count_nonzero(active),1))}
+    metrics={"yaw":float(environment_yaw_degrees+illumination_yaw_offset_degrees),"sun_direction":L.tolist(),"readability_fill":float(readability_fill),"body_luminance":stats(active),"dark_pixel_percentage":float(100*np.count_nonzero(active&(luminance<.08))/max(np.count_nonzero(active),1)),"highlight_p95":float(np.percentile(luminance[active],95)) if np.any(active) else None,"clipped_pixel_percentage":float(100*np.count_nonzero(active&np.any(rgb>=.999,axis=-1))/max(np.count_nonzero(active),1))}
     if region_aov is not None:
         metrics["cuirass_luminance"]=stats((region_aov[...,0]>.5)&(region_aov[...,1]<.5))
         metrics["skin_luminance"]=stats((region_aov[...,1]>.5)&(region_aov[...,0]<.5))

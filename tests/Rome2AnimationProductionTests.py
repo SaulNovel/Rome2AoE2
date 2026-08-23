@@ -2,7 +2,7 @@ import json,sys,unittest
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1];sys.path.insert(0,str(ROOT))
 from rome2aoe2.conversion import load_and_validate_manifest
-from rome2aoe2.production import CAMERA_TARGET_Z,EXPECTED_DIRECTIONS,ORTHOGRAPHIC_SCALE,PROFILE,frozen_candidate,production_identity
+from rome2aoe2.production import CAMERA_TARGET_Z,EXPECTED_DIRECTIONS,ORTHOGRAPHIC_SCALE,PROFILE,frozen_candidate,production_identity,resolve_production_profile
 class ProductionTests(unittest.TestCase):
  @classmethod
  def setUpClass(cls):cls.request=load_and_validate_manifest(ROOT/"config/manifests/rom_principes-explicit-animations-v2.json")
@@ -16,6 +16,8 @@ class ProductionTests(unittest.TestCase):
    candidate=frozen_candidate(category,row);self.assertEqual(row["resolved_asset"],candidate.resolved_asset);self.assertEqual(row["frame_count"],candidate.frame_count)
  def test_deterministic_output_identity_and_cross_animation_isolation(self):
   rows=self.request.manifest["animations"];a=production_identity(self.request.manifest_hash,"idle",rows["idle"]);self.assertEqual(a,production_identity(self.request.manifest_hash,"idle",rows["idle"]));self.assertNotEqual(a,production_identity(self.request.manifest_hash,"walk",rows["walk"]))
+ def test_v1_default_and_v2_profile_resolution(self):
+  self.assertEqual("aoe2-infantry-animation-production-v1",PROFILE);self.assertEqual(0.0,resolve_production_profile()["main_illumination"]["readability_fill_linear"]);self.assertEqual(0.6,resolve_production_profile("aoe2-infantry-animation-production-v2")["main_illumination"]["readability_fill_linear"])
  def test_renderer_contract(self):
   source=(ROOT/"src/blender/render_manifest_native_production.py").read_text();assembly=(ROOT/"src/blender/assemble_native_basis_animation.py").read_text()
   self.assertIn("Rome2AoE2_FacetRoot",source);self.assertIn("exact.exact_render",source);self.assertIn("action_fingerprint_after",source);self.assertNotIn("Rom_Principes",source);self.assertNotIn("Rom_Hastati",source);self.assertIn('doc["category"] in {"walk","death"}',assembly)

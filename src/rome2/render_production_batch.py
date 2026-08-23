@@ -1,10 +1,54 @@
 """Run a resumable direction batch for one frozen production category."""
-import argparse,json,subprocess,sys
+import argparse
+import subprocess
+import sys
 from pathlib import Path
-ROOT=Path(__file__).resolve().parents[2];sys.path.insert(0,str(ROOT))
-from rome2aoe2.conversion import DEFAULT_BLENDER,load_and_validate_manifest,manifest_digest
-from rome2aoe2.native_assembly import assemble_native,static_visual_manifest
-from rome2aoe2.production import category_output,frozen_candidate
+
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
+
+from rome2aoe2.conversion import DEFAULT_BLENDER, load_and_validate_manifest
+from rome2aoe2.native_assembly import assemble_native, static_assembly_identity
+from rome2aoe2.production import (PROFILE, category_output, frozen_candidate,
+                                  resolve_production_profile)
+
+
 def main():
- p=argparse.ArgumentParser();p.add_argument("manifest",type=Path);p.add_argument("category");p.add_argument("directions");a=p.parse_args();r=load_and_validate_manifest(a.manifest);row=r.manifest["animations"][a.category];candidate=frozen_candidate(a.category,row);blend,assembly=assemble_native(r.manifest,candidate);out=category_output(r.unit.definition.main_unit,r.manifest_hash,a.category,row);static=ROOT/"build/conversions"/r.unit.definition.main_unit.casefold()/manifest_digest(static_visual_manifest(r.manifest))/"static-assembly-input.json";report=out/f"render-report-directions-{a.directions.replace(',','-')}.json";cmd=[str(DEFAULT_BLENDER),"--background","--python",str(ROOT/"src/blender/render_manifest_native_production.py"),"--","--input-blend",str(blend),"--static-input",str(static),"--output-root",str(out),"--report",str(report),"--category",a.category,"--manifest-hash",r.manifest_hash,"--animation-asset",row["resolved_asset"],"--source-samples",str(row["frame_count"]),"--source-fps",str(row["fps"]),"--action-fingerprint",assembly["action_fingerprint_before"],"--directions",a.directions];raise SystemExit(subprocess.run(cmd).returncode)
-if __name__=="__main__":main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("manifest", type=Path)
+    parser.add_argument("category")
+    parser.add_argument("directions")
+    parser.add_argument("--production-profile", default=PROFILE)
+    args = parser.parse_args()
+    profile = resolve_production_profile(args.production_profile)
+    blade_capability = profile["attachment_capabilities"]["one_handed_blade/weapon_02"]
+    request = load_and_validate_manifest(args.manifest)
+    record = request.manifest["animations"][args.category]
+    candidate = frozen_candidate(args.category, record)
+    blend, assembly = assemble_native(request.manifest, candidate, DEFAULT_BLENDER,
+                                      blade_capability)
+    output = category_output(request.unit.definition.main_unit, request.manifest_hash,
+                             args.category, record, profile["name"])
+    static = (ROOT / "build/conversions" / request.unit.definition.main_unit.casefold() /
+              static_assembly_identity(request.manifest, blade_capability) /
+              "static-assembly-input.json")
+    if not static.is_file():
+        raise RuntimeError(f"profile-specific static assembly is unavailable: {static}")
+    report = output / f"render-report-directions-{args.directions.replace(',', '-')}.json"
+    command = [
+        str(DEFAULT_BLENDER), "--background", "--python",
+        str(ROOT / "src/blender/render_manifest_native_production.py"), "--",
+        "--input-blend", str(blend), "--static-input", str(static),
+        "--output-root", str(output), "--report", str(report),
+        "--category", args.category, "--manifest-hash", request.manifest_hash,
+        "--profile-name", profile["name"],
+        "--animation-asset", record["resolved_asset"],
+        "--source-samples", str(record["frame_count"]), "--source-fps", str(record["fps"]),
+        "--action-fingerprint", assembly["action_fingerprint_before"],
+        "--directions", args.directions,
+    ]
+    raise SystemExit(subprocess.run(command).returncode)
+
+
+if __name__ == "__main__":
+    main()

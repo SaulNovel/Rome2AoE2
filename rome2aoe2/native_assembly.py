@@ -19,6 +19,8 @@ SKELETON = ASSET_CACHE / "animations/skeletons/rome_man_game.anim"
 EXPORTER_ID = "AssetEditorAnimationRunner-RmvToGltfExporter-20260820"
 ASSEMBLY_VERSION = "asset-editor-native-basis-v2-category-preview-framing"
 EXPORT_CACHE = ROOT / "build/cache/rome2aoe2/native-weighted-exports-v1"
+V1_BLADE_CAPABILITY = "one_handed_blade_v1"
+V2_BLADE_CAPABILITY = "one_handed_blade_v2_full_source_frame"
 
 
 def static_visual_manifest(manifest: Mapping[str, Any]) -> dict[str, Any]:
@@ -27,6 +29,17 @@ def static_visual_manifest(manifest: Mapping[str, Any]) -> dict[str, Any]:
     document.pop("animations", None)
     document["schema_version"] = 1
     return document
+
+
+def static_assembly_identity(manifest: Mapping[str, Any],
+                             blade_capability: str = V1_BLADE_CAPABILITY) -> str:
+    visual_digest = manifest_digest(static_visual_manifest(manifest))
+    if blade_capability == V1_BLADE_CAPABILITY:
+        return visual_digest
+    if blade_capability != V2_BLADE_CAPABILITY:
+        raise ValueError(f"unsupported one-handed blade capability: {blade_capability}")
+    payload = {"visual_manifest": visual_digest, "one_handed_blade": blade_capability}
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
 @dataclass(frozen=True)
@@ -110,7 +123,8 @@ def export_weighted(component: ClassifiedComponent, candidate: AnimationCandidat
 
 
 def assemble_native(manifest: Mapping[str, Any], candidate: AnimationCandidate,
-                    blender: Path = DEFAULT_BLENDER) -> tuple[Path, dict]:
+                    blender: Path = DEFAULT_BLENDER,
+                    blade_capability: str = V1_BLADE_CAPABILITY) -> tuple[Path, dict]:
     classified = classify_components(manifest)
     exports = []
     for component in classified:
@@ -118,15 +132,17 @@ def assemble_native(manifest: Mapping[str, Any], candidate: AnimationCandidate,
             gltf, hit, report = export_weighted(component, candidate)
             exports.append({"component": component.component, "source_path": component.source_path,
                             "gltf": str(gltf), "cache_hit": hit, "export": report})
-    visual_manifest = static_visual_manifest(manifest)
-    identity = hashlib.sha256(json.dumps({"manifest": manifest_digest(visual_manifest),
-                                          "clip": candidate.resolved_asset, "version": ASSEMBLY_VERSION},
+    static_identity = static_assembly_identity(manifest, blade_capability)
+    identity = hashlib.sha256(json.dumps({"static_assembly": static_identity,
+                                          "clip": candidate.resolved_asset, "version": ASSEMBLY_VERSION,
+                                          "one_handed_blade": blade_capability},
                                          sort_keys=True).encode()).hexdigest()
     directory = ROOT / "build/validation/rome2aoe2/native-basis-proof" / identity
     output, report = directory / "native-unit.blend", directory / "assembly-report.json"
-    static = DEFAULT_OUTPUT_ROOT / manifest["source"]["main_unit"].casefold() / manifest_digest(visual_manifest) / "static-unit.blend"
+    static = DEFAULT_OUTPUT_ROOT / manifest["source"]["main_unit"].casefold() / static_identity / "static-unit.blend"
     input_doc = {"format": "rome2aoe2.native-basis-assembly-input", "version": 1,
                  "assembly_version": ASSEMBLY_VERSION, "static_blend": str(static),
+                 "one_handed_blade_capability": blade_capability,
                  "classification": [item.__dict__ for item in classified], "native_exports": exports,
                  "output_blend": str(output), "report": str(report),
                  "category": candidate.category, "clip": candidate.resolved_asset}

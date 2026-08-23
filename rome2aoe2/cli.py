@@ -214,6 +214,7 @@ def parser() -> argparse.ArgumentParser:
     reconfigure.add_argument("--output", type=Path, required=True)
     convert = commands.add_parser("convert")
     convert.add_argument("manifest", type=Path)
+    convert.add_argument("--production-profile", default="aoe2-infantry-animation-production-v2")
     catalog_command = commands.add_parser("catalog")
     catalog_command.add_argument("action", choices=("rebuild",))
     extract = commands.add_parser("extract")
@@ -227,7 +228,11 @@ def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     try:
         if args.command == "convert":
-            print(json.dumps(convert_manifest(args.manifest), indent=2, sort_keys=True))
+            from .production import resolve_production_profile
+            profile = resolve_production_profile(args.production_profile)
+            capability = profile["attachment_capabilities"]["one_handed_blade/weapon_02"]
+            print(json.dumps(convert_manifest(args.manifest, blade_capability=capability),
+                             indent=2, sort_keys=True))
             return 0
         if args.command == "configure-animations":
             catalog = load_default_catalog(args.catalog)

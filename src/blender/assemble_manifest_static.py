@@ -273,7 +273,8 @@ def exact_material_report(document):
             "faction_colours": document["faction_colours"]}
 
 
-def exact_render(scene, document, output, filename, size):
+def exact_render(scene, document, output, filename, size, *, environment_yaw_degrees=None,
+                 readability_fill=0.0):
     runtime.OUT = output
     runtime.AOV = output / "aov-working" / str(os.getpid())
     runtime.OUT.mkdir(parents=True, exist_ok=True); runtime.AOV.mkdir(parents=True, exist_ok=True)
@@ -287,8 +288,11 @@ def exact_render(scene, document, output, filename, size):
     arrays = {name: runtime.render_aov(scene, output, name, Path(document["texture_root"]))
               for name in exact_materials.RAW_AOVS}
     profile, _ = review_profile()
+    if environment_yaw_degrees is None:
+        environment_yaw_degrees = profile["lighting"]["environment_yaw_degrees"]
     runtime.shade(scene, arrays,
-                  environment_yaw_degrees=profile["lighting"]["environment_yaw_degrees"],
+                  environment_yaw_degrees=environment_yaw_degrees,
+                  readability_fill=readability_fill,
                   output_name=filename, diagnostics=False)
     return str(output / filename)
 
@@ -316,6 +320,8 @@ def render_views(document, output, armature):
 
 def main():
     args = arguments(); document = json.loads(args.input.read_text(encoding="utf-8"))
+    if document.get("one_handed_blade_capability") != "one_handed_blade_v2_full_source_frame":
+        raise RuntimeError("static assembly requires explicit one_handed_blade_v2_full_source_frame semantics")
     args.output.mkdir(parents=True, exist_ok=True)
     bpy.ops.wm.read_factory_settings(use_empty=True)
     imports = import_assets(document)

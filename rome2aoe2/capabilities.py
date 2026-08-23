@@ -28,9 +28,9 @@ CAPABILITIES = {
 CAPABILITIES.update({
     ("ATTACHMENT", "crest_centre"): Capability("ATTACHMENT", "crest_centre", CapabilityStatus.VALIDATED,
                                                  "generic asset-pair contact solver"),
-    ("ATTACHMENT", "one_handed_blade/weapon_02"): Capability(
-        "ATTACHMENT", "one_handed_blade/weapon_02", CapabilityStatus.VALIDATED,
-        "RMV v_pivot plus geometry grip validation"),
+    ("ATTACHMENT", "one_handed_blade_v2_full_source_frame/weapon_02"): Capability(
+        "ATTACHMENT", "one_handed_blade_v2_full_source_frame/weapon_02", CapabilityStatus.VALIDATED,
+        "geometry grip translation plus source-authoritative RMV/VMD/native-carrier rotation and roll"),
     ("ATTACHMENT", "shield/weapon_03"): Capability("ATTACHMENT", "shield/weapon_03",
                                                     CapabilityStatus.VALIDATED, "source socket and RMV pivot"),
     ("ATTACHMENT", "javelin/weapon_05"): Capability("ATTACHMENT", "javelin/weapon_05",
@@ -68,7 +68,7 @@ def require_capabilities(category: str, keys: Iterable[str]) -> list[Capability]
 def conversion_capabilities(materials: Iterable[str]) -> dict[str, list[dict[str, str]]]:
     required = {
         "MATERIAL": list(materials),
-        "ATTACHMENT": ["crest_centre", "one_handed_blade/weapon_02",
+        "ATTACHMENT": ["crest_centre", "one_handed_blade_v2_full_source_frame/weapon_02",
                        "shield/weapon_03", "javelin/weapon_05"],
         "RENDER": ["infantry_static_review_v1"],
     }

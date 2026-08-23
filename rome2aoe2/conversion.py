@@ -241,9 +241,12 @@ def _git_commit() -> str | None:
 
 
 def convert(manifest_path: Path, catalog: Catalog | None = None, output_root: Path = DEFAULT_OUTPUT_ROOT,
-            blender: Path = DEFAULT_BLENDER, execute_blender: bool = True) -> dict[str, Any]:
+            blender: Path = DEFAULT_BLENDER, execute_blender: bool = True,
+            blade_capability: str = "one_handed_blade_v2_full_source_frame") -> dict[str, Any]:
     request = load_and_validate_manifest(manifest_path, catalog, output_root)
-    output = request.output_directory
+    from .native_assembly import static_assembly_identity
+    output = output_root / request.unit.definition.main_unit.casefold() / static_assembly_identity(
+        request.manifest, blade_capability)
     output.mkdir(parents=True, exist_ok=True)
     resolver = DependencyResolver(cache_root=Path(request.unit.source_root))
     exports = _export_assets(request, resolver, output)
@@ -257,6 +260,7 @@ def convert(manifest_path: Path, catalog: Catalog | None = None, output_root: Pa
         "unit": request.unit.definition.main_unit, "manifest_hash": request.manifest_hash,
         "exports": exports, "texture_manifest": str(texture_path), "texture_root": str(resolver.cache_root),
         "faction_colours": colours, "static_pose": str(STATIC_POSE),
+        "one_handed_blade_capability": blade_capability,
         "directions": [45, 135, 225, 315],
     }
     assembly_path = output / "static-assembly-input.json"

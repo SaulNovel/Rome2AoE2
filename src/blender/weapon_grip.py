@@ -109,40 +109,50 @@ def solve_weapon_grip(meshes, wrapper, armature, source_asset, socket,
         if hand_points:
             hand_surface_distance = float(np.linalg.norm(np.asarray(hand_points) -
                                                          np.asarray(tuple(socket_world)), axis=1).min())
-    orientation = {"applied": False}
+    orientation = {"applied": False,
+                   "policy": "source-authoritative socket rotation and roll; geometry changes translation only",
+                   "source": "RMV2 node transform + VMD weapon_02 + native bn_weapon_02 carrier"}
     if all(anatomy_points.values()):
         hand_center = Vector(np.mean(anatomy_points["bn_righthand"], axis=0))
         forearm_center = Vector(np.mean(anatomy_points["bn_rightforearm"], axis=0))
         desired_world = (hand_center - forearm_center).normalized()
         current_world = (wrapper.matrix_world.to_3x3() @ Vector(blade_axis)).normalized()
         before_dot = current_world.dot(desired_world)
-        correction_world = current_world.rotation_difference(desired_world).to_matrix()
-        wrapper_rotation = wrapper.matrix_world.to_3x3().normalized()
-        correction_local = wrapper_rotation.inverted() @ correction_world @ wrapper_rotation
-        for mesh in meshes:
-            mesh.matrix_basis = correction_local.to_4x4() @ mesh.matrix_basis
-        bpy.context.view_layer.update()
-        corrected_world = (wrapper.matrix_world.to_3x3() @ correction_local @ Vector(blade_axis)).normalized()
-        orientation = {"applied": abs(before_dot - 1.0) > 1e-6,
-                       "policy": "minimal rotation aligns blade away from forearm through hand",
-                       "source": "posed bn_righthand and bn_rightforearm weighted geometry",
-                       "before_alignment_dot": float(before_dot),
-                       "after_alignment_dot": float(corrected_world.dot(desired_world)),
-                       "desired_blade_axis_world": list(desired_world),
-                       "correction_local": [[float(correction_local[r][c]) for c in range(3)] for r in range(3)]}
+        orientation.update({"forearm_alignment_dot_diagnostic": float(before_dot),
+                            "desired_blade_axis_world_diagnostic": list(desired_world),
+                            "rotation_correction": None})
+    # A longitudinal vector cannot constrain roll.  Derive the remaining asset
+    # axes to validate a complete frame, but preserve the authoritative source
+    # node/socket rotation instead of anatomically rotating the weapon.
+    crossguard_points = radial[np.abs(projections - crossguard_projection) < max((high_projection-low_projection)/48, 1e-6)]
+    if len(crossguard_points) >= 3:
+        _, _, transverse_vectors = np.linalg.svd(crossguard_points - crossguard_points.mean(axis=0), full_matrices=False)
+        lateral_axis = transverse_vectors[0] - blade_axis * np.dot(transverse_vectors[0], blade_axis)
+        lateral_axis /= np.linalg.norm(lateral_axis)
+    else:
+        lateral_axis = vectors[1] - blade_axis * np.dot(vectors[1], blade_axis)
+        lateral_axis /= np.linalg.norm(lateral_axis)
+    flat_axis = np.cross(blade_axis, lateral_axis); flat_axis /= np.linalg.norm(flat_axis)
+    frame = np.stack((blade_axis, lateral_axis, flat_axis))
+    frame_orthogonality_error = float(np.max(np.abs(frame @ frame.T - np.identity(3))))
+    frame_handedness = float(np.linalg.det(frame))
     valid = (attachment_class == AttachmentClass.ONE_HANDED_BLADE and
              blade_length > handle_length * 1.5 and grip_distance <= max(radius * 1.5, .035) and
              hand_surface_distance is not None and hand_surface_distance < .12 and
-             orientation.get("after_alignment_dot", -1) > .99)
+             frame_orthogonality_error < 1e-5 and frame_handedness > .999)
     return {
         "attachment_class": attachment_class.value,
         "source_transform_policy": "RMV v_pivot preserved; socket/bone orientation unchanged",
-        "asset_pair_cache_key": [source_asset, socket, attachment_class.value],
+        "capability_version": "one_handed_blade_v2_full_source_frame",
+        "asset_pair_cache_key": [source_asset, socket, attachment_class.value, "v2_full_source_frame"],
         "socket": socket, "socket_origin_local": [0.0, 0.0, 0.0],
         "hand_bone": "bn_righthand", "hand_bone_origin_to_socket_distance": hand_bone_distance,
         "posed_body_surface_to_grip_distance": body_distance,
         "posed_right_hand_weighted_surface_to_grip_distance": hand_surface_distance,
         "principal_axis_local": blade_axis.tolist(), "grip_point_local": grip.tolist(),
+        "lateral_axis_local": lateral_axis.tolist(), "flat_axis_local": flat_axis.tolist(),
+        "frame_orthogonality_error": frame_orthogonality_error,
+        "frame_handedness": frame_handedness,
         "handle_end_local": handle_end.tolist(), "blade_end_local": blade_end.tolist(),
         "blade_length": blade_length, "handle_length": handle_length,
         "grip_axis_distance": grip_distance, "cross_section_radius_p75": radius,

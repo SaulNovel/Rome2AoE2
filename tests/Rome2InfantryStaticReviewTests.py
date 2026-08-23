@@ -23,7 +23,7 @@ class Rome2InfantryStaticReviewTests(unittest.TestCase):
         result = conversion_capabilities(["DefaultMaterial", "Weighted", "WeightedDirtmap",
                                           "WeightedSkinDirtmap", "DecalDirtmap"])
         self.assertEqual({row["status"] for rows in result.values() for row in rows}, {"VALIDATED"})
-        self.assertIn(("ATTACHMENT", "one_handed_blade/weapon_02"), CAPABILITIES)
+        self.assertIn(("ATTACHMENT", "one_handed_blade_v2_full_source_frame/weapon_02"), CAPABILITIES)
         self.assertIn(("RENDER", "infantry_static_review_v1"), CAPABILITIES)
 
     def test_exporter_preserves_rmv_pivot_as_source_gltf_transform(self):
@@ -44,6 +44,9 @@ class Rome2InfantryStaticReviewTests(unittest.TestCase):
         self.assertIn("np.linalg.svd", source)
         self.assertIn("posed_right_hand_weighted_surface_to_grip_distance", source)
         self.assertIn("RMV v_pivot preserved", source)
+        self.assertIn("one_handed_blade_v2_full_source_frame", source)
+        self.assertIn("source-authoritative socket rotation and roll", source)
+        self.assertNotIn("rotation_difference", source)
         self.assertNotIn("roman_gladius_rotation", source)
         self.assertNotIn("Rom_Principes", source)
 
