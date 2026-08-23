@@ -5,7 +5,7 @@ from unittest.mock import patch
 ROOT=Path(__file__).resolve().parents[1];sys.path[:0]=[str(ROOT),str(ROOT/"src")]
 from rome2aoe2.conversion import load_and_validate_manifest
 from rome2aoe2.production import PROFILE
-from rome2aoe2.production_reports import (MATERIAL_BACKEND,consolidate_category,
+from rome2aoe2.production_reports import (MATERIAL_BACKEND,ProductionReportError,consolidate_category,
                                           resolve_consolidated_category,sld_category_root)
 
 MANIFEST=ROOT/"config/manifests/rom_principes-explicit-animations-v2.json"
@@ -22,7 +22,7 @@ class ProductionProfilePlumbingTests(unittest.TestCase):
   request=load_and_validate_manifest(MANIFEST)
   expected={"idle":"755bb608f930291c","walk":"f1389c0919e1e947","attack":"339e2e1c6eef62e2","death":"fd4c3fa460895604"}
   for category,identity in expected.items():
-   report=consolidate_category(request,category,V3);self.assertEqual(V3,report["production_profile"]);self.assertEqual(identity,report["production_identity"]);self.assertEqual(0,report["validation"]["confirmed_overflow_count"])
+   report=consolidate_category(request,category,V3);self.assertEqual(V3,report["production_profile"]);self.assertEqual(identity,report["production_identity"]);self.assertEqual(0,report["validation"]["confirmed_overflow_count"]);self.assertEqual(0.6,report["main_illumination"]["readability_fill_linear"]);self.assertEqual(0.0,report["main_illumination"]["captured_environment_yaw_degrees"]);self.assertFalse(report["main_illumination"]["material_equations_modified"])
   temporary=ROOT/"build/tmp/v3-consolidated-idle.json";temporary.write_text(json.dumps(consolidate_category(request,"idle",V3)))
   with patch("rome2aoe2.production_reports.production_report_path",return_value=temporary):_,resolved=resolve_consolidated_category(request,"idle",V3)
   self.assertEqual(V3,resolved["production_profile"])
@@ -39,7 +39,18 @@ class ProductionProfilePlumbingTests(unittest.TestCase):
    for d in range(16):(folder/f"idle-direction-{d:02d}-frame-000.png").touch()
   profile={"name":future,"main_illumination":{"captured_environment_yaw_degrees":0.0,"readability_fill_linear":0.5},"attachment_capabilities":{"one_handed_blade/weapon_02":"future-capability"},"shadow":{"profile":"synthetic-shadow"}}
   with patch("rome2aoe2.production_reports.resolve_production_profile",return_value=profile),patch("rome2aoe2.production_reports.category_output",return_value=root):report=consolidate_category(request,category,future)
-  self.assertEqual(future,report["production_profile"]);self.assertEqual("future-capability",report["attachment_capabilities"]["one_handed_blade/weapon_02"])
+  self.assertEqual(future,report["production_profile"]);self.assertEqual("future-capability",report["attachment_capabilities"]["one_handed_blade/weapon_02"]);self.assertEqual(profile["main_illumination"],report["main_illumination"])
+  (root/"production-report.json").write_text(json.dumps(report))
+  with patch("rome2aoe2.production_reports.resolve_production_profile",return_value=profile),patch("rome2aoe2.production_reports.category_output",return_value=root):_,resolved=resolve_consolidated_category(request,category,future)
+  self.assertEqual(0.5,resolved["main_illumination"]["readability_fill_linear"])
+ def test_source_and_cross_category_illumination_disagreement_fails(self):
+  request=load_and_validate_manifest(MANIFEST)
+  for category in ("idle","walk"):
+   with self.subTest(category=category):
+    root=Path(consolidate_category(request,category,V3)["category_root"]);document=json.loads((root/"render-report.json").read_text());document["main_illumination"]["readability_fill_linear"]=0.0
+    with patch("rome2aoe2.production_reports._main_reports",return_value=[document]):
+     with self.assertRaises(ProductionReportError) as caught:consolidate_category(request,category,V3)
+    self.assertEqual("PRODUCTION_PROFILE_MISMATCH",caught.exception.reason)
  def test_orchestration_entry_points_are_profile_explicit(self):
   for relative in ("src/aoe2/author_manifest_production_sld.py","src/aoe2/build_manifest_dev_integration.py"):
    source=(ROOT/relative).read_text();self.assertIn("--production-profile",source);self.assertIn("resolve_consolidated_category",source);self.assertNotIn("camera_profile\"]!=PROFILE",source)

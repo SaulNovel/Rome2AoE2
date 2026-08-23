@@ -96,6 +96,14 @@ def consolidate_category(request, category: str, production_profile: str) -> dic
                                             actual=document.get(key), path=str(root))
         if document.get("action_fingerprint_before") != document.get("action_fingerprint_after"):
             raise ProductionReportError("PRODUCTION_ACTION_CHANGED", f"{label} Action fingerprint changed", category=category)
+    for document in main_documents:
+        illumination = document.get("main_illumination")
+        if illumination is None and legacy_schema:
+            illumination = profile["main_illumination"]
+        if illumination != profile["main_illumination"]:
+            raise ProductionReportError("PRODUCTION_PROFILE_MISMATCH", "main illumination policy changed",
+                                        category=category, expected=profile["main_illumination"],
+                                        actual=document.get("main_illumination"))
     main_records = [item for document in main_documents for item in document.get("records", ())]
     main_keys = {(item.get("direction"), item.get("output_frame")) for item in main_records}
     shadow_keys = {(item.get("direction"), item.get("output_frame")) for item in shadow.get("records", ())}
@@ -107,7 +115,7 @@ def consolidate_category(request, category: str, production_profile: str) -> dic
     fingerprints = {document.get("action_fingerprint_before") for document in main_documents}
     if fingerprints != {shadow.get("action_fingerprint_before")}:
         raise ProductionReportError("PRODUCTION_REPORT_MISMATCH", "main/shadow Action fingerprints differ", category=category)
-    if main.get("profile") != profile["name"] or (not legacy_schema and main.get("main_illumination") != profile["main_illumination"]):
+    if main.get("profile") != profile["name"]:
         raise ProductionReportError("PRODUCTION_PROFILE_MISMATCH", "main profile policy changed", category=category)
     if shadow.get("profile") != profile["shadow"]["profile"]:
         raise ProductionReportError("PRODUCTION_PROFILE_MISMATCH", "shadow profile policy changed", category=category)
@@ -150,6 +158,7 @@ def consolidate_category(request, category: str, production_profile: str) -> dic
         "production_scale": effective, "master_dimensions": list(CANVASES["master"]),
         "x1_dimensions": list(CANVASES["x1"]), "x2_dimensions": list(CANVASES["x2"]),
         "material_backend": main.get("material_backend"),
+        "main_illumination": profile["main_illumination"],
         "attachment_capabilities": profile["attachment_capabilities"],
         "shadow_profile": profile["shadow"]["profile"], "output_inventory": inventory,
         "source_reports": {"main": [str(root / "render-report.json")] if (root / "render-report.json").is_file() else [str(path) for path in sorted(root.glob("render-report-directions-*.json"))], "shadow": str(root / "shadow-report.json")},
@@ -177,12 +186,12 @@ def resolve_consolidated_category(request, category: str, production_profile: st
     profile = resolve_production_profile(production_profile)
     if profile.get("identity_version", 2) == 1:
         for key in ("production_profile", "production_identity", "category_root", "visual_scale",
-                    "canonical_orthographic_scale", "effective_orthographic_scale"):
+                    "canonical_orthographic_scale", "effective_orthographic_scale", "main_illumination"):
             report.setdefault(key, expected[key])
     keys = ("manifest_hash", "production_profile", "production_identity", "category",
             "exact_animation_asset", "action_fingerprint", "native_frames", "native_fps",
             "visual_scale", "canonical_orthographic_scale", "effective_orthographic_scale",
-            "direction_order", "direction_yaws", "output_inventory")
+            "direction_order", "direction_yaws", "main_illumination", "output_inventory")
     for key in keys:
         if report.get(key) != expected.get(key):
             raise ProductionReportError("CONSOLIDATED_REPORT_MISMATCH", "consolidated report is stale or invalid",
