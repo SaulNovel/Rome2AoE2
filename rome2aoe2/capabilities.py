@@ -9,6 +9,7 @@ from .errors import ConverterError, ErrorCode
 
 class CapabilityStatus(str, Enum):
     VALIDATED = "VALIDATED"
+    REVOKED = "REVOKED"
 
 
 @dataclass(frozen=True)
@@ -29,8 +30,12 @@ CAPABILITIES.update({
     ("ATTACHMENT", "crest_centre"): Capability("ATTACHMENT", "crest_centre", CapabilityStatus.VALIDATED,
                                                  "generic asset-pair contact solver"),
     ("ATTACHMENT", "one_handed_blade_v2_full_source_frame/weapon_02"): Capability(
-        "ATTACHMENT", "one_handed_blade_v2_full_source_frame/weapon_02", CapabilityStatus.VALIDATED,
-        "geometry grip translation plus source-authoritative RMV/VMD/native-carrier rotation and roll"),
+        "ATTACHMENT", "one_handed_blade_v2_full_source_frame/weapon_02", CapabilityStatus.REVOKED,
+        "human review found the native weapon_02 forward direction reversed"),
+    ("ATTACHMENT", "one_handed_blade_v3_source_frame_forward_corrected/weapon_02"): Capability(
+        "ATTACHMENT", "one_handed_blade_v3_source_frame_forward_corrected/weapon_02",
+        CapabilityStatus.VALIDATED,
+        "v2 grip plus versioned weapon_02 handle-to-tip forward convention correction"),
     ("ATTACHMENT", "shield/weapon_03"): Capability("ATTACHMENT", "shield/weapon_03",
                                                     CapabilityStatus.VALIDATED, "source socket and RMV pivot"),
     ("ATTACHMENT", "javelin/weapon_05"): Capability("ATTACHMENT", "javelin/weapon_05",
@@ -65,10 +70,13 @@ def require_capabilities(category: str, keys: Iterable[str]) -> list[Capability]
     return resolved
 
 
-def conversion_capabilities(materials: Iterable[str]) -> dict[str, list[dict[str, str]]]:
+def conversion_capabilities(
+        materials: Iterable[str],
+        blade_capability: str = "one_handed_blade_v3_source_frame_forward_corrected",
+) -> dict[str, list[dict[str, str]]]:
     required = {
         "MATERIAL": list(materials),
-        "ATTACHMENT": ["crest_centre", "one_handed_blade_v2_full_source_frame/weapon_02",
+        "ATTACHMENT": ["crest_centre", f"{blade_capability}/weapon_02",
                        "shield/weapon_03", "javelin/weapon_05"],
         "RENDER": ["infantry_static_review_v1"],
     }

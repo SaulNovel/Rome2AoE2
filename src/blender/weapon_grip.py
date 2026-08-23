@@ -1,4 +1,5 @@
 """Generic source-pivot and geometry validation for rigid hand attachments."""
+import math
 from enum import Enum
 
 import numpy as np
@@ -31,13 +32,15 @@ def classify_rigid_attachment(meshes, socket):
 
 
 def solve_weapon_grip(meshes, wrapper, armature, source_asset, socket,
-                      attachment_class=AttachmentClass.ONE_HANDED_BLADE, body_meshes=()):
-    """Validate the source pivot as the grip; never invent an asset rotation.
+                      attachment_class=AttachmentClass.ONE_HANDED_BLADE, body_meshes=(),
+                      capability="one_handed_blade_v2_full_source_frame"):
+    """Validate the source pivot/grip and apply a versioned socket convention.
 
     Rome II's socket is the origin of ``wrapper``. The RMV ``v_pivot`` is
     retained in each rigid child's local transform. Geometry determines the
     longitudinal axis and which side is the blade, while the source pivot
-    determines the grip location along that axis.
+    determines the grip location along that axis. Any v3 half-turn is a stable
+    weapon_02 basis mapping, not an anatomical or per-frame orientation solve.
     """
     points = _wrapper_points(meshes, wrapper)
     center = points.mean(axis=0)
@@ -61,14 +64,57 @@ def solve_weapon_grip(meshes, wrapper, armature, source_asset, socket,
         blade_axis = axis; blade_projection = high_projection; handle_projection = low_projection
     else:
         blade_axis = -axis; blade_projection = low_projection; handle_projection = high_projection
+    source_forward_dot_exported_x = float(np.dot(blade_axis, np.asarray((1.0, 0.0, 0.0))))
     grip_projection = (crossguard_projection + handle_projection) * .5
     source_grip = center + axis * grip_projection
     translation = Matrix.Translation(-Vector(source_grip))
+    # Complete the geometry frame before changing the mesh.  A blade-forward
+    # correction must rotate about the grip and preserve the authored blade
+    # face (roll reference), so its validated flat/normal axis is the only
+    # appropriate half-turn axis.
+    projections = (points - source_grip) @ blade_axis
+    radial = points - source_grip - np.outer(projections, blade_axis)
+    crossguard_points = radial[np.abs((points - center) @ axis - crossguard_projection) <
+                               max((high_projection-low_projection)/48, 1e-6)]
+    if len(crossguard_points) >= 3:
+        _, _, transverse_vectors = np.linalg.svd(
+            crossguard_points - crossguard_points.mean(axis=0), full_matrices=False)
+        lateral_axis = transverse_vectors[0] - blade_axis * np.dot(transverse_vectors[0], blade_axis)
+        lateral_axis /= np.linalg.norm(lateral_axis)
+    else:
+        lateral_axis = vectors[1] - blade_axis * np.dot(vectors[1], blade_axis)
+        lateral_axis /= np.linalg.norm(lateral_axis)
+    flat_axis = np.cross(blade_axis, lateral_axis); flat_axis /= np.linalg.norm(flat_axis)
+    if capability == "one_handed_blade_v2_full_source_frame":
+        forward_correction = Matrix.Identity(4)
+        correction_report = None
+        cache_semantics = "v2_full_source_frame"
+    elif capability == "one_handed_blade_v3_source_frame_forward_corrected":
+        # Rome II weapon_02's native carrier uses -X as blade-forward, while
+        # exported rigid blade geometry is handle-to-tip +X.  Correct that
+        # stable wrapper convention once at assembly time; never per frame.
+        forward_correction = Matrix.Rotation(math.pi, 4, Vector(flat_axis))
+        correction_report = {
+            "angle_degrees": 180.0,
+            "axis": "validated_flat_axis_local",
+            "axis_local": flat_axis.tolist(),
+            "reason": "weapon_02 native carrier blade-forward is opposite exported mesh handle-to-tip +X",
+        }
+        cache_semantics = "v3_source_frame_forward_corrected"
+    else:
+        raise RuntimeError(f"unsupported one-handed blade capability: {capability}")
     for mesh in meshes:
-        mesh.matrix_basis = translation @ mesh.matrix_basis
+        mesh.matrix_basis = forward_correction @ translation @ mesh.matrix_basis
     bpy.context.view_layer.update()
+    correction3 = np.asarray(forward_correction.to_3x3(), np.float64)
+    correction_determinant = float(np.linalg.det(correction3))
+    blade_axis = correction3 @ blade_axis
+    lateral_axis = correction3 @ lateral_axis
+    flat_axis = correction3 @ flat_axis
     points = _wrapper_points(meshes, wrapper)
     grip = np.zeros(3, np.float64)
+    transformed_grip = forward_correction @ translation @ Vector(source_grip)
+    grip_preservation_error = float(transformed_grip.length)
     projections = points @ blade_axis
     blade_length = float(projections.max())
     handle_length = abs(float(projections.min()))
@@ -109,8 +155,8 @@ def solve_weapon_grip(meshes, wrapper, armature, source_asset, socket,
         if hand_points:
             hand_surface_distance = float(np.linalg.norm(np.asarray(hand_points) -
                                                          np.asarray(tuple(socket_world)), axis=1).min())
-    orientation = {"applied": False,
-                   "policy": "source-authoritative socket rotation and roll; geometry changes translation only",
+    orientation = {"applied": correction_report is not None,
+                   "policy": "source-authoritative socket frame with versioned weapon_02 forward convention",
                    "source": "RMV2 node transform + VMD weapon_02 + native bn_weapon_02 carrier"}
     if all(anatomy_points.values()):
         hand_center = Vector(np.mean(anatomy_points["bn_righthand"], axis=0))
@@ -120,31 +166,35 @@ def solve_weapon_grip(meshes, wrapper, armature, source_asset, socket,
         before_dot = current_world.dot(desired_world)
         orientation.update({"forearm_alignment_dot_diagnostic": float(before_dot),
                             "desired_blade_axis_world_diagnostic": list(desired_world),
-                            "rotation_correction": None})
-    # A longitudinal vector cannot constrain roll.  Derive the remaining asset
-    # axes to validate a complete frame, but preserve the authoritative source
-    # node/socket rotation instead of anatomically rotating the weapon.
-    crossguard_points = radial[np.abs(projections - crossguard_projection) < max((high_projection-low_projection)/48, 1e-6)]
-    if len(crossguard_points) >= 3:
-        _, _, transverse_vectors = np.linalg.svd(crossguard_points - crossguard_points.mean(axis=0), full_matrices=False)
-        lateral_axis = transverse_vectors[0] - blade_axis * np.dot(transverse_vectors[0], blade_axis)
-        lateral_axis /= np.linalg.norm(lateral_axis)
-    else:
-        lateral_axis = vectors[1] - blade_axis * np.dot(vectors[1], blade_axis)
-        lateral_axis /= np.linalg.norm(lateral_axis)
-    flat_axis = np.cross(blade_axis, lateral_axis); flat_axis /= np.linalg.norm(flat_axis)
+                            "rotation_correction": correction_report})
     frame = np.stack((blade_axis, lateral_axis, flat_axis))
     frame_orthogonality_error = float(np.max(np.abs(frame @ frame.T - np.identity(3))))
     frame_handedness = float(np.linalg.det(frame))
+    mesh_determinants = {mesh.name: float(mesh.matrix_basis.to_3x3().determinant())
+                         for mesh in meshes}
+    wrapper_determinant = float(wrapper.matrix_world.to_3x3().determinant())
+    carrier_forward_axis = np.asarray((-1.0, 0.0, 0.0))
+    rendered_forward_dot_carrier_forward = float(np.dot(blade_axis, carrier_forward_axis))
+    forward_sign_valid = (capability == "one_handed_blade_v2_full_source_frame" or
+                          (source_forward_dot_exported_x > .99 and
+                           rendered_forward_dot_carrier_forward > .99))
     valid = (attachment_class == AttachmentClass.ONE_HANDED_BLADE and
              blade_length > handle_length * 1.5 and grip_distance <= max(radius * 1.5, .035) and
              hand_surface_distance is not None and hand_surface_distance < .12 and
-             frame_orthogonality_error < 1e-5 and frame_handedness > .999)
+             frame_orthogonality_error < 1e-5 and frame_handedness > .999 and
+             grip_preservation_error < 1e-6 and correction_determinant > .999 and
+             wrapper_determinant > 0.0 and all(value > 0.0 for value in mesh_determinants.values()) and
+             forward_sign_valid)
+    if capability == "one_handed_blade_v3_source_frame_forward_corrected" and not forward_sign_valid:
+        raise RuntimeError(
+            "one-handed weapon_02 blade forward sign is not reliably resolved: "
+            f"exported_x_dot={source_forward_dot_exported_x}, "
+            f"carrier_forward_dot={rendered_forward_dot_carrier_forward}")
     return {
         "attachment_class": attachment_class.value,
         "source_transform_policy": "RMV v_pivot preserved; socket/bone orientation unchanged",
-        "capability_version": "one_handed_blade_v2_full_source_frame",
-        "asset_pair_cache_key": [source_asset, socket, attachment_class.value, "v2_full_source_frame"],
+        "capability_version": capability,
+        "asset_pair_cache_key": [source_asset, socket, attachment_class.value, cache_semantics],
         "socket": socket, "socket_origin_local": [0.0, 0.0, 0.0],
         "hand_bone": "bn_righthand", "hand_bone_origin_to_socket_distance": hand_bone_distance,
         "posed_body_surface_to_grip_distance": body_distance,
@@ -153,9 +203,16 @@ def solve_weapon_grip(meshes, wrapper, armature, source_asset, socket,
         "lateral_axis_local": lateral_axis.tolist(), "flat_axis_local": flat_axis.tolist(),
         "frame_orthogonality_error": frame_orthogonality_error,
         "frame_handedness": frame_handedness,
+        "correction_determinant": correction_determinant,
+        "mesh_determinants": mesh_determinants, "wrapper_determinant": wrapper_determinant,
+        "source_handle_to_tip_dot_exported_x": source_forward_dot_exported_x,
+        "carrier_blade_forward_axis_local": carrier_forward_axis.tolist(),
+        "rendered_forward_dot_carrier_forward": rendered_forward_dot_carrier_forward,
+        "forward_sign_valid": bool(forward_sign_valid),
         "handle_end_local": handle_end.tolist(), "blade_end_local": blade_end.tolist(),
         "blade_length": blade_length, "handle_length": handle_length,
         "grip_axis_distance": grip_distance, "cross_section_radius_p75": radius,
+        "grip_preservation_error": grip_preservation_error,
         "geometry_grip": {"method": "crossguard transverse peak plus bounded handle midpoint",
                           "source_pivot_to_grip_translation": (-source_grip).tolist(),
                           "crossguard_projection": crossguard_projection,

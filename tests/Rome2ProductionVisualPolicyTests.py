@@ -53,7 +53,7 @@ class Rome2ProductionVisualPolicyTests(unittest.TestCase):
         self.assertNotIn("rotation_difference", source)
         self.assertNotIn("Rom_Principes", source)
         self.assertNotIn("sws_sync_atk_005", source)
-        self.assertIn('"rotation_correction": None', source)
+        self.assertIn("correction_report = None", source)
 
     def test_cache_versions_separate_old_weapon_transform(self):
         source=(ROOT/"src/blender/weapon_grip.py").read_text()
@@ -73,6 +73,44 @@ class Rome2ProductionVisualPolicyTests(unittest.TestCase):
         v1 = static_assembly_identity(manifest)
         v2 = static_assembly_identity(manifest, "one_handed_blade_v2_full_source_frame")
         self.assertNotEqual(v1, v2)
+
+    def test_v3_forward_correction_has_distinct_profile_and_cache_identity(self):
+        profile = resolve_production_profile(
+            "aoe2-infantry-animation-production-v3-weapon-forward")
+        capability = "one_handed_blade_v3_source_frame_forward_corrected"
+        self.assertEqual(capability,
+                         profile["attachment_capabilities"]["one_handed_blade/weapon_02"])
+        self.assertEqual("HUMAN_APPROVED", profile["status"])
+        self.assertEqual(0.6, profile["main_illumination"]["readability_fill_linear"])
+        self.assertEqual(0.0, profile["main_illumination"]["captured_environment_yaw_degrees"])
+        self.assertFalse(profile["main_illumination"]["material_equations_modified"])
+        self.assertEqual("fixed-global-cast-shadow-v1", profile["shadow"]["profile"])
+        self.assertFalse(profile["shadow"]["modified"])
+        manifest = {"schema_version": 1, "components": {}}
+        self.assertNotEqual(
+            static_assembly_identity(manifest, "one_handed_blade_v2_full_source_frame"),
+            static_assembly_identity(manifest, capability))
+        record = {"resolved_asset": "fixture.anim", "asset_sha256": "a" * 64}
+        self.assertNotEqual(
+            production_identity("b" * 64, "attack", record,
+                                "aoe2-infantry-animation-production-v2"),
+            production_identity("b" * 64, "attack", record, profile["name"]))
+
+    def test_v3_corrects_only_the_stable_forward_sign_at_assembly(self):
+        source = (ROOT/"src/blender/weapon_grip.py").read_text()
+        self.assertIn("Matrix.Rotation(math.pi, 4, Vector(flat_axis))", source)
+        self.assertIn("forward_correction @ translation @ mesh.matrix_basis", source)
+        self.assertIn("validated_flat_axis_local", source)
+        self.assertIn("source_forward_dot_exported_x > .99", source)
+        self.assertIn("rendered_forward_dot_carrier_forward > .99", source)
+        self.assertIn("correction_determinant > .999", source)
+        self.assertIn("grip_preservation_error < 1e-6", source)
+        self.assertIn("all(value > 0.0 for value in mesh_determinants.values())", source)
+        self.assertIn("wrapper_determinant > 0.0", source)
+        self.assertNotIn("rotation_difference", source)
+        self.assertNotIn("frame_set", source)
+        for forbidden in ("roman_gladius", "Rom_Principes", "sws_sync_atk_005"):
+            self.assertNotIn(forbidden, source)
 
     def test_weapon_correction_is_assembly_local_and_not_per_frame(self):
         static = (ROOT/"src/blender/assemble_manifest_static.py").read_text()

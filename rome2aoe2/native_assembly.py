@@ -21,6 +21,7 @@ ASSEMBLY_VERSION = "asset-editor-native-basis-v2-category-preview-framing"
 EXPORT_CACHE = ROOT / "build/cache/rome2aoe2/native-weighted-exports-v1"
 V1_BLADE_CAPABILITY = "one_handed_blade_v1"
 V2_BLADE_CAPABILITY = "one_handed_blade_v2_full_source_frame"
+V3_BLADE_CAPABILITY = "one_handed_blade_v3_source_frame_forward_corrected"
 
 
 def static_visual_manifest(manifest: Mapping[str, Any]) -> dict[str, Any]:
@@ -36,7 +37,7 @@ def static_assembly_identity(manifest: Mapping[str, Any],
     visual_digest = manifest_digest(static_visual_manifest(manifest))
     if blade_capability == V1_BLADE_CAPABILITY:
         return visual_digest
-    if blade_capability != V2_BLADE_CAPABILITY:
+    if blade_capability not in {V2_BLADE_CAPABILITY, V3_BLADE_CAPABILITY}:
         raise ValueError(f"unsupported one-handed blade capability: {blade_capability}")
     payload = {"visual_manifest": visual_digest, "one_handed_blade": blade_capability}
     return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()

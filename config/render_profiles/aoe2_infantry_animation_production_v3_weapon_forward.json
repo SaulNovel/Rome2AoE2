@@ -1,0 +1,26 @@
+{
+  "format": "rome2aoe2.render-profile",
+  "version": 3,
+  "name": "aoe2-infantry-animation-production-v3-weapon-forward",
+  "status": "HUMAN_APPROVED",
+  "inherits": "aoe2-infantry-animation-production-v2",
+  "camera": {
+    "policy": "fixed production camera",
+    "orthographic_scale": 7.27480212108078,
+    "unit_root_yaw": "(292.5 - 22.5 * direction) % 360"
+  },
+  "main_illumination": {
+    "policy": "world-fixed captured dominant illumination plus orientation-independent readability fill",
+    "captured_environment_yaw_degrees": 0.0,
+    "readability_fill_linear": 0.6,
+    "material_equations_modified": false
+  },
+  "shadow": {
+    "profile": "fixed-global-cast-shadow-v1",
+    "modified": false
+  },
+  "attachment_capabilities": {
+    "one_handed_blade/weapon_02": "one_handed_blade_v3_source_frame_forward_corrected"
+  },
+  "cache_policy": "v1/v2 outputs immutable; v3 identity includes corrected attachment capability"
+}

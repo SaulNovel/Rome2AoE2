@@ -242,7 +242,7 @@ def _git_commit() -> str | None:
 
 def convert(manifest_path: Path, catalog: Catalog | None = None, output_root: Path = DEFAULT_OUTPUT_ROOT,
             blender: Path = DEFAULT_BLENDER, execute_blender: bool = True,
-            blade_capability: str = "one_handed_blade_v2_full_source_frame") -> dict[str, Any]:
+            blade_capability: str = "one_handed_blade_v3_source_frame_forward_corrected") -> dict[str, Any]:
     request = load_and_validate_manifest(manifest_path, catalog, output_root)
     from .native_assembly import static_assembly_identity
     output = output_root / request.unit.definition.main_unit.casefold() / static_assembly_identity(
@@ -251,7 +251,8 @@ def convert(manifest_path: Path, catalog: Catalog | None = None, output_root: Pa
     resolver = DependencyResolver(cache_root=Path(request.unit.source_root))
     exports = _export_assets(request, resolver, output)
     textures = _texture_manifest(exports, resolver)
-    capabilities = conversion_capabilities(row["material_type"] for row in textures["materials"])
+    capabilities = conversion_capabilities(
+        (row["material_type"] for row in textures["materials"]), blade_capability)
     texture_path = output / "texture-manifest.json"
     texture_path.write_text(deterministic_json(textures), encoding="utf-8")
     colours = _faction_colours(request.unit)

@@ -150,7 +150,7 @@ def helmet_attachment(imports, socket):
     return matches[0]
 
 
-def attach(imports, armature):
+def attach(imports, armature, blade_capability):
     report = {}
     crest_wrapper = None
     for component, (record, objects) in imports.items():
@@ -191,7 +191,8 @@ def attach(imports, armature):
             report[component]["grip_solver"] = solve_weapon_grip(
                 meshes, wrapper, armature, record["source_path"], socket, attachment_class,
                 [obj for obj in bpy.context.scene.objects
-                 if obj.type == "MESH" and obj.get("manifest_component") == "body"])
+                 if obj.type == "MESH" and obj.get("manifest_component") == "body"],
+                blade_capability)
             if not report[component]["grip_solver"]["validated"]:
                 raise RuntimeError(f"source-driven one-handed grip validation failed: {report[component]['grip_solver']}")
             report[component]["grip_solver"]["final_local_transforms"] = {
@@ -320,15 +321,17 @@ def render_views(document, output, armature):
 
 def main():
     args = arguments(); document = json.loads(args.input.read_text(encoding="utf-8"))
-    if document.get("one_handed_blade_capability") != "one_handed_blade_v2_full_source_frame":
-        raise RuntimeError("static assembly requires explicit one_handed_blade_v2_full_source_frame semantics")
+    blade_capability = document.get("one_handed_blade_capability")
+    if blade_capability not in {"one_handed_blade_v2_full_source_frame",
+                                "one_handed_blade_v3_source_frame_forward_corrected"}:
+        raise RuntimeError("static assembly requires explicit supported one-handed blade semantics")
     args.output.mkdir(parents=True, exist_ok=True)
     bpy.ops.wm.read_factory_settings(use_empty=True)
     imports = import_assets(document)
     removed_helpers = purge_export_helpers(imports)
     armature, delta = consolidate(imports)
     pose = apply_pose(armature, document["static_pose"])
-    attachments = attach(imports, armature)
+    attachments = attach(imports, armature, blade_capability)
     material_report = exact_material_report(document)
     studio_report = studio()
     outputs = render_views(document, args.output, armature)
