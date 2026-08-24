@@ -9,6 +9,7 @@ from aoe2.sld import parse_sld
 from aoe2.sld_authoring import author_sld_animation
 from rome2aoe2.conversion import load_and_validate_manifest
 from rome2aoe2.production import PROFILE
+from rome2aoe2.render_modes import require_release_eligible
 from rome2aoe2.production_reports import resolve_consolidated_category,sld_category_root
 
 def frame_path(root,kind,scale,category,direction,ordinal):return root/kind/scale/f"{category}-direction-{direction:02d}-frame-{ordinal:03d}.png"
@@ -40,7 +41,7 @@ def validate_visuals(sld_path,production_root,category,scale,samples,review):
 def main():
  parser=argparse.ArgumentParser();parser.add_argument("manifest",type=Path);parser.add_argument("category",choices=("idle","walk","attack","death"));parser.add_argument("--expected-manifest-hash",required=True);parser.add_argument("--production-profile",default=PROFILE);parser.add_argument("--texconv",type=Path,required=True);args=parser.parse_args();request=load_and_validate_manifest(args.manifest)
  if request.manifest_hash!=args.expected_manifest_hash:raise RuntimeError(f"manifest identity mismatch: {request.manifest_hash}")
- record=request.manifest["animations"][args.category];report_path,production=resolve_consolidated_category(request,args.category,args.production_profile);production_root=Path(production["category_root"])
+ record=request.manifest["animations"][args.category];report_path,production=resolve_consolidated_category(request,args.category,args.production_profile);require_release_eligible(production);production_root=Path(production["category_root"])
  for key,expected in (("manifest_hash",request.manifest_hash),("category",args.category),("exact_animation_asset",record["resolved_asset"]),("production_profile",args.production_profile)):
   if production.get(key)!=expected:raise RuntimeError(f"production report {key} mismatch: {production.get(key)!r} != {expected!r}")
  unit=request.unit.definition.main_unit;output_root=sld_category_root(unit,request.manifest_hash,args.category,args.production_profile);review=output_root/"review";encoded={}

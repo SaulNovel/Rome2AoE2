@@ -14,6 +14,7 @@ from .native_assembly import (V1_BLADE_CAPABILITY, assemble_native,
 from .visual_scale import (VISUAL_SCALE_MAX, VISUAL_SCALE_MIN,
                            effective_orthographic_scale, validate_visual_scale,
                            visual_scale_from_manifest)
+from .render_modes import render_identity_payload, resolve_render_mode, sample_policy
 
 PROFILE = "aoe2-infantry-animation-production-v1"
 PROFILE_ROOT = ROOT / "config/render_profiles"
@@ -60,10 +61,13 @@ def resolve_production_profile(name: str = PROFILE) -> dict[str, Any]:
 
 
 def category_output(unit: str, manifest_hash: str, category: str, record: dict[str, Any],
-                    profile_name: str = PROFILE, visual_scale: float = 1.0) -> Path:
+                    profile_name: str = PROFILE, visual_scale: float = 1.0,
+                    render_mode: str = "full") -> Path:
     profile = resolve_production_profile(profile_name)
-    identity = production_identity(manifest_hash, category, record, profile_name, visual_scale)
-    return OUTPUT_ROOT / unit.casefold() / manifest_hash[:16] / category / profile["name"] / identity[:16]
+    identity = production_identity(manifest_hash, category, record, profile_name, visual_scale, render_mode)
+    if render_mode == "full":
+        return OUTPUT_ROOT / unit.casefold() / manifest_hash[:16] / category / profile["name"] / identity[:16]
+    return ROOT / "build/test-renders/rome2aoe2" / unit.casefold() / manifest_hash[:16] / category / profile["name"] / render_mode / identity[:16]
 
 
 def frozen_candidate(category: str, record: dict[str, Any]) -> AnimationCandidate:
@@ -85,12 +89,15 @@ def frozen_candidate(category: str, record: dict[str, Any]) -> AnimationCandidat
 
 
 def production_identity(manifest_hash: str, category: str, record: dict[str, Any],
-                        profile_name: str = PROFILE, visual_scale: float = 1.0) -> str:
+                        profile_name: str = PROFILE, visual_scale: float = 1.0,
+                        render_mode: str = "full") -> str:
     profile = resolve_production_profile(profile_name)
     visual_scale = validate_visual_scale(visual_scale)
     payload = {"unit": "manifest", "manifest_hash": manifest_hash, "category": category,
                "asset": record["resolved_asset"], "asset_sha256": record["asset_sha256"],
                "profile": profile["name"]}
+    if render_mode != "full":
+        payload = render_identity_payload(render_mode, **payload)
     if profile.get("identity_version", 2) >= 2:
         payload.update({"visual_scale": visual_scale,
                         "attachment_capabilities": profile["attachment_capabilities"]})
@@ -102,8 +109,9 @@ def production_identity(manifest_hash: str, category: str, record: dict[str, Any
 def render_manifest(path: Path, expected_hash: str | None = None,
                     blender: Path = DEFAULT_BLENDER,
                     categories: tuple[str, ...] = ("idle", "walk", "attack", "death"),
-                    profile_name: str = PROFILE) -> dict[str, Any]:
+                    profile_name: str = PROFILE, render_mode: str = "full") -> dict[str, Any]:
     profile = resolve_production_profile(profile_name)
+    mode = resolve_render_mode(render_mode)
     request = load_and_validate_manifest(path)
     if expected_hash is not None and request.manifest_hash != expected_hash:
         raise ConverterError(ErrorCode.MANIFEST_UNIT_MISMATCH, "Frozen production manifest hash changed",
@@ -120,22 +128,29 @@ def render_manifest(path: Path, expected_hash: str | None = None,
                                  path=str(static_input))
         convert(path, output_root=ROOT / "build/conversions", blender=blender,
                 blade_capability=blade_capability)
-    summary = {"format": "rome2aoe2.production-render-set", "version": 1,
+    summary = {"format": "rome2aoe2.production-render-set", "version": 2,
                "manifest": str(path), "manifest_hash": request.manifest_hash,
                "profile": profile["name"], "visual_scale": visual_scale,
                "visual_scale_min": VISUAL_SCALE_MIN, "visual_scale_max": VISUAL_SCALE_MAX,
                "canonical_orthographic_scale": canonical_ortho,
                "effective_orthographic_scale": effective_orthographic_scale(
                    visual_scale, canonical_ortho),
-               "categories": {}}
+               "render_mode": render_mode, "render_policy": mode,
+               "release_eligible": mode["release_eligible"], "categories": {}}
     if not categories or any(category not in {"idle", "walk", "attack", "death"} for category in categories):
         raise ValueError("production categories must be idle/walk/attack/death")
     for category in categories:
         record = request.manifest["animations"][category]
+        sampling = (sample_policy(record["frame_count"], record["fps"], record["looping"])
+                    if render_mode == "fast" else
+                    {"source_sample_count": record["frame_count"], "test_sample_count": record["frame_count"],
+                     "source_fps": record["fps"], "test_effective_fps": record["fps"],
+                     "source_duration": record["duration"], "test_duration": record["duration"],
+                     "looping": record["looping"]})
         candidate = frozen_candidate(category, record)
         blend, assembly = assemble_native(request.manifest, candidate, blender, blade_capability)
         output = category_output(request.unit.definition.main_unit, request.manifest_hash, category, record,
-                                 profile["name"], visual_scale)
+                                 profile["name"], visual_scale, render_mode)
         report = output / "render-report.json"
         output.mkdir(parents=True, exist_ok=True)
         command = [str(blender), "--background", "--python",
@@ -144,6 +159,8 @@ def render_manifest(path: Path, expected_hash: str | None = None,
                    "--output-root", str(output), "--report", str(report),
                    "--category", category, "--manifest-hash", request.manifest_hash,
                    "--profile-name", profile["name"],
+                   "--render-mode", render_mode,
+                   "--looping", str(int(record["looping"])),
                    "--visual-scale", str(visual_scale),
                    "--animation-asset", record["resolved_asset"], "--source-samples", str(record["frame_count"]),
                    "--source-fps", str(record["fps"]), "--action-fingerprint", assembly["action_fingerprint_before"]]
@@ -160,6 +177,8 @@ def render_manifest(path: Path, expected_hash: str | None = None,
                           "--manifest-hash", request.manifest_hash, "--animation-asset", record["resolved_asset"],
                           "--source-samples", str(record["frame_count"]), "--source-fps", str(record["fps"]),
                           "--action-fingerprint", assembly["action_fingerprint_before"]]
+        shadow_command.extend(["--render-mode", render_mode])
+        shadow_command.extend(["--looping", str(int(record["looping"]))])
         shadow_command.extend(["--visual-scale", str(visual_scale)])
         shadow_command.extend(["--canonical-orthographic-scale", str(canonical_ortho)])
         shadow_result = subprocess.run(shadow_command, capture_output=True, text=True)
@@ -167,7 +186,7 @@ def render_manifest(path: Path, expected_hash: str | None = None,
             _raise_render_failure(shadow_report, ErrorCode.PREVIEW_GENERATION_FAILED,
                                   "Production shadow rendering failed", category=category,
                                   stderr=shadow_result.stderr[-4000:], stdout=shadow_result.stdout[-4000:])
-        summary["categories"][category] = {"main": json.loads(report.read_text()),
+        summary["categories"][category] = {"sampling": sampling, "main": json.loads(report.read_text()),
                                             "shadow": json.loads(shadow_report.read_text()),
                                             "assembly": assembly}
     base = OUTPUT_ROOT / request.unit.definition.main_unit.casefold() / request.manifest_hash[:16]

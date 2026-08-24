@@ -11,6 +11,7 @@ import assemble_manifest_static as exact
 from aoe2.facet_mapping import soldier_yaw_degrees
 from downsample_rgba import downsample_rgba
 from rome2aoe2.errors import ConverterError
+from rome2aoe2.render_modes import sample_positions
 from rome2aoe2.visual_scale import (CANONICAL_ORTHOGRAPHIC_SCALE,
                                     VISUAL_SCALE_MAX, VISUAL_SCALE_MIN,
                                     confirm_canvas_bounds,
@@ -22,7 +23,7 @@ SCALE=CANONICAL_ORTHOGRAPHIC_SCALE; TARGET_Z=0.8503072261810303; MASTER=800
 DIRECTIONS=[(292.5-22.5*i)%360 for i in range(16)]
 
 def args():
- p=argparse.ArgumentParser();p.add_argument("--input-blend",type=Path,required=True);p.add_argument("--static-input",type=Path,required=True);p.add_argument("--output-root",type=Path,required=True);p.add_argument("--report",type=Path,required=True);p.add_argument("--category",required=True);p.add_argument("--manifest-hash",required=True);p.add_argument("--animation-asset",required=True);p.add_argument("--source-samples",type=int,required=True);p.add_argument("--source-fps",type=float,required=True);p.add_argument("--action-fingerprint",required=True);p.add_argument("--directions",default="all");p.add_argument("--profile-name",default="aoe2-infantry-animation-production-v1");p.add_argument("--visual-scale",type=float,default=1.0);return p.parse_args(sys.argv[sys.argv.index("--")+1:])
+ p=argparse.ArgumentParser();p.add_argument("--input-blend",type=Path,required=True);p.add_argument("--static-input",type=Path,required=True);p.add_argument("--output-root",type=Path,required=True);p.add_argument("--report",type=Path,required=True);p.add_argument("--category",required=True);p.add_argument("--manifest-hash",required=True);p.add_argument("--animation-asset",required=True);p.add_argument("--source-samples",type=int,required=True);p.add_argument("--source-fps",type=float,required=True);p.add_argument("--action-fingerprint",required=True);p.add_argument("--directions",default="all");p.add_argument("--profile-name",default="aoe2-infantry-animation-production-v1");p.add_argument("--visual-scale",type=float,default=1.0);p.add_argument("--render-mode",choices=("full","fast"),default="full");p.add_argument("--looping",type=int,choices=(0,1),default=0);return p.parse_args(sys.argv[sys.argv.index("--")+1:])
 def production_profile(name):
  if name=="aoe2-infantry-animation-production-v1":return {"name":name,"main_illumination":{"captured_environment_yaw_degrees":0.0,"readability_fill_linear":0.0}}
  path=ROOT/"config/render_profiles"/f"{name.replace('-','_')}.json"
@@ -65,18 +66,22 @@ def main():
  if before!=a.action_fingerprint:raise RuntimeError("frozen Action fingerprint mismatch")
  root=bpy.data.objects.get("Rome2AoE2_FacetRoot")
  if root is None:raise RuntimeError("native production FacetRoot missing")
- camera(scene,visual_scale,canonical_scale);start,end=action.frame_range;samples=[start+(end-start)*i/(a.source_samples-1) for i in range(a.source_samples)]
- material_root=a.output_root/"main/master";material_root.mkdir(parents=True,exist_ok=True);shutil.copyfile(doc["texture_manifest"],material_root/"texture-manifest.json")
+ camera(scene,visual_scale,canonical_scale);start,end=action.frame_range;samples=sample_positions(start,end,a.source_samples,a.source_fps,bool(a.looping),a.render_mode)
+ material_root=a.output_root/("main/master" if a.render_mode=="full" else "main/x2");material_root.mkdir(parents=True,exist_ok=True);shutil.copyfile(doc["texture_manifest"],material_root/"texture-manifest.json")
  records=[];a.output_root.mkdir(parents=True,exist_ok=True)
  directions=list(range(16)) if a.directions=="all" else [int(v) for v in a.directions.split(",")]
  for direction in directions:
   root.rotation_euler[2]=math.radians(soldier_yaw_degrees(direction))
   for ordinal,value in enumerate(samples):
    frame(scene,value);stem=f"{a.category}-direction-{direction:02d}-frame-{ordinal:03d}.png";master=a.output_root/"main/master"/stem;x1=a.output_root/"main/x1"/stem;x2=a.output_root/"main/x2"/stem
-   x1.parent.mkdir(parents=True,exist_ok=True);x2.parent.mkdir(parents=True,exist_ok=True);master.parent.mkdir(parents=True,exist_ok=True)
-   if not master.is_file() or not x1.is_file() or not x2.is_file():exact.exact_render(scene,doc,master.parent,stem,MASTER,environment_yaw_degrees=illumination["captured_environment_yaw_degrees"],readability_fill=illumination["readability_fill_linear"],shield_readability=shield_readability,weapon_readability=weapon_readability);reduce(master,x2,400);reduce(master,x1,200)
-   master_bounds=bounds(master);b1,b2=bounds(x1),bounds(x2)
-   if b1 is None or b2 is None:raise RuntimeError("unexpected empty production frame")
+   if a.render_mode=="full":x1.parent.mkdir(parents=True,exist_ok=True)
+   x2.parent.mkdir(parents=True,exist_ok=True);master.parent.mkdir(parents=True,exist_ok=True)
+   if a.render_mode=="fast":
+    master=x2
+    if not x2.is_file():exact.exact_render(scene,doc,x2.parent,stem,400,environment_yaw_degrees=illumination["captured_environment_yaw_degrees"],readability_fill=illumination["readability_fill_linear"],shield_readability=shield_readability,weapon_readability=weapon_readability)
+   elif not master.is_file() or not x1.is_file() or not x2.is_file():exact.exact_render(scene,doc,master.parent,stem,MASTER,environment_yaw_degrees=illumination["captured_environment_yaw_degrees"],readability_fill=illumination["readability_fill_linear"],shield_readability=shield_readability,weapon_readability=weapon_readability);reduce(master,x2,400);reduce(master,x1,200)
+   master_bounds=bounds(master);b1,b2=(bounds(x1) if a.render_mode=="full" else None),bounds(x2)
+   if (a.render_mode=="full" and b1 is None) or b2 is None:raise RuntimeError("unexpected empty production frame")
    canvas_validation=validate_canvas_bounds(visual_scale,a.category,direction,ordinal,master_bounds,[MASTER,MASTER])
    try:
     if canvas_validation["edge_contact"]:canvas_validation=confirm_edge(scene,doc,a,illumination,stem,visual_scale,effective_scale,master_bounds,direction,ordinal,shield_readability,weapon_readability)
@@ -88,5 +93,6 @@ def main():
  if after!=before:raise RuntimeError("native Action changed during production render")
  edge_contacts=sum(1 for record in records if record["canvas_validation"]["edge_contact"]);overscan_count=sum(1 for record in records if record["canvas_validation"]["overscan_performed"])
  report={"format":"rome2aoe2.native-production-render","version":1,"manifest_hash":a.manifest_hash,"category":a.category,"animation_asset":a.animation_asset,"action":action.name,"action_fingerprint_before":before,"action_fingerprint_after":after,"action_preserved":before==after,"native_source_samples":a.source_samples,"native_fps":a.source_fps,"action_frame_range":[start,end],"rendered_sample_mapping":[{"source_sample":i,"blender_frame":v} for i,v in enumerate(samples)],"direction_order":directions,"direction_yaws":[DIRECTIONS[i] for i in directions],"direction_policy":"fixed camera; rotate Rome2AoE2_FacetRoot","profile":profile["name"],"main_illumination":illumination,"visual_scale":visual_scale,"visual_scale_min":VISUAL_SCALE_MIN,"visual_scale_max":VISUAL_SCALE_MAX,"canonical_orthographic_scale":canonical_scale,"effective_orthographic_scale":effective_scale,"orthographic_scale":effective_scale,"camera_target_z":TARGET_Z,"canvas":{"master":[800,800],"x2":[400,400],"x1":[200,200]},"hotspot_policy":{"x1":[100,122],"x2":[200,244],"ground_anchor":"unchanged"},"x1_dimensions":[200,200],"x2_dimensions":[400,400],"material_backend":"rome2_exact_material_backend/runtime_material_preparation/frozen captured runtime display","shadow_profile":"fixed-global-cast-shadow-v1","records":records,"validation":{"armature_count":1,"bone_count":50,"no_empty_main_frames":True,"constant_canvas":True,"constant_visual_scale":True,"edge_contact_count":edge_contacts,"overscan_count":overscan_count,"confirmed_overflow_count":0,"canvas_overflow":False,"x1_x2_frame_parity":True,"action_preserved":before==after}}
+ report.update({"render_mode":a.render_mode,"release_eligible":a.render_mode=="full","render_resolution":MASTER if a.render_mode=="full" else 400,"output_scales":["x1","x2"] if a.render_mode=="full" else ["x2"],"native_source_samples":a.source_samples,"rendered_sample_count":len(samples),"source_duration_seconds":(a.source_samples-1)/a.source_fps,"rendered_duration_seconds":(a.source_samples-1)/a.source_fps,"effective_render_fps":(len(samples)-1)/((a.source_samples-1)/a.source_fps) if a.source_samples>1 else a.source_fps});report["canvas"]={"master":[800,800],"x2":[400,400],"x1":[200,200]} if a.render_mode=="full" else {"x2":[400,400]};report["validation"]["x1_omitted"]=a.render_mode=="fast"
  a.report.parent.mkdir(parents=True,exist_ok=True);a.report.write_text(json.dumps(report,indent=2,sort_keys=True)+"\n")
 if __name__=="__main__":main()
