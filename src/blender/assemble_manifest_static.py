@@ -275,7 +275,7 @@ def exact_material_report(document):
 
 
 def exact_render(scene, document, output, filename, size, *, environment_yaw_degrees=None,
-                 readability_fill=0.0):
+                 readability_fill=0.0, shield_readability=None):
     runtime.OUT = output
     runtime.AOV = output / "aov-working" / str(os.getpid())
     runtime.OUT.mkdir(parents=True, exist_ok=True); runtime.AOV.mkdir(parents=True, exist_ok=True)
@@ -288,12 +288,14 @@ def exact_render(scene, document, output, filename, size, *, environment_yaw_deg
     scene.view_settings.look = "None"; scene.view_settings.exposure = 0; scene.view_settings.gamma = 1
     arrays = {name: runtime.render_aov(scene, output, name, Path(document["texture_root"]))
               for name in exact_materials.RAW_AOVS}
+    semantic_role = runtime.render_aov(scene, output, "semantic_role", Path(document["texture_root"])) if shield_readability else None
     profile, _ = review_profile()
     if environment_yaw_degrees is None:
         environment_yaw_degrees = profile["lighting"]["environment_yaw_degrees"]
     runtime.shade(scene, arrays,
                   environment_yaw_degrees=environment_yaw_degrees,
                   readability_fill=readability_fill,
+                  semantic_role_aov=semantic_role, shield_readability=shield_readability,
                   output_name=filename, diagnostics=False)
     return str(output / filename)
 

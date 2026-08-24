@@ -1,0 +1,39 @@
+{
+  "format": "rome2aoe2.render-profile",
+  "version": 4,
+  "identity_version": 3,
+  "name": "aoe2-infantry-animation-production-v4-shield-readability",
+  "status": "HUMAN_APPROVED_POLICY_NO_FULL_RENDER_YET",
+  "inherits": "aoe2-infantry-animation-production-v3-weapon-forward",
+  "camera": {
+    "policy": "fixed production camera",
+    "orthographic_scale": 7.27480212108078,
+    "unit_root_yaw": "(292.5 - 22.5 * direction) % 360"
+  },
+  "main_illumination": {
+    "policy": "world-fixed captured dominant illumination plus orientation-independent readability fill",
+    "captured_environment_yaw_degrees": 0.0,
+    "readability_fill_linear": 0.6,
+    "material_equations_modified": false
+  },
+  "render_capabilities": {
+    "shield_readability": {
+      "capability": "shield_readability_v1",
+      "eligibility_role": "shield",
+      "response_dispatch": {
+        "diffuse_dominant": {
+          "treatment": "smooth_pre_albedo_diffuse_irradiance_floor",
+          "floor": 2.7,
+          "transition_width": 0.15
+        },
+        "mixed": {"treatment": "none"},
+        "strongly_specular_reflective": {"treatment": "none"}
+      }
+    }
+  },
+  "shadow": {"profile": "fixed-global-cast-shadow-v1", "modified": false},
+  "attachment_capabilities": {
+    "one_handed_blade/weapon_02": "one_handed_blade_v3_source_frame_forward_corrected"
+  },
+  "cache_policy": "distinct v4 identity includes shield_readability_v1 response dispatch; historical v3 immutable"
+}

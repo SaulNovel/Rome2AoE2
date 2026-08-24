@@ -21,6 +21,7 @@ import render_cross_unit_set_a as cu
 from runtime_material_preparation import (prepare_decal_dirtmap,
     prepare_weighted, prepare_weighted_dirtmap, prepare_weighted_skin_dirtmap,
     shield_faction_colours)
+from rome2aoe2.shield_readability import resolve_shield_readability
 
 OUT = ROOT / "build/local-integration/rome2/runtime-parity-proof"
 AOV = OUT / "aov"
@@ -104,6 +105,11 @@ def build_pass(root, pass_name, texture_base=None):
     records={m["material_name"]:m for m in manifest["materials"]}
     texture_base=Path(texture_base) if texture_base is not None else root/"textures"
     maps={name:{t["semantic"]:texture_base/Path(t["extracted_path"]) for t in row["textures"] if t["status"]=="resolved"} for name,row in records.items()}
+    material_roles={}
+    for obj in bpy.data.objects:
+        if obj.type!="MESH":continue
+        for slot in obj.material_slots:
+            if slot.material:material_roles.setdefault(slot.material.name.split('.')[0],set()).add(obj.get("manifest_component"))
     for mat in bpy.data.materials:
         key=mat.name.split('.')[0]; tex=maps.get(key,{})
         mat.use_nodes=True; nodes=mat.node_tree.nodes; links=mat.node_tree.links; nodes.clear()
@@ -163,6 +169,9 @@ def build_pass(root, pass_name, texture_base=None):
         elif pass_name=="family":
             codes={"WeightedSkinDirtmap":(1,0,0,1),"DecalDirtmap":(0,1,0,1),"WeightedDirtmap":(0,0,1,1),"Weighted":(0,0,0,1)}
             emission.inputs["Color"].default_value=codes.get(material_type,(1,1,0,1)); value=None
+        elif pass_name=="semantic_role":
+            roles=material_roles.get(key,set());code=(1,0,0,1) if roles=={"shield"} else ((0,1,0,1) if roles=={"melee_weapon"} else (0,0,0,1))
+            emission.inputs["Color"].default_value=code;value=None
         elif pass_name=="region":
             if key=="italian_square_muscled_cuirass_": code=(1,0,0,1)
             elif key in ("roman_body1","roman_1_head"): code=(0,1,0,1)
@@ -186,7 +195,7 @@ def build_pass(root, pass_name, texture_base=None):
         elif pass_name=="specular_raw": emission.inputs["Color"].default_value=(.04,.04,.04,1)
         elif pass_name=="gloss_raw": emission.inputs["Color"].default_value=(.35,.04,0,1)
         elif pass_name=="normal_sample": emission.inputs["Color"].default_value=(.5,.5,1,1)
-        elif pass_name not in ("family","region"): emission.inputs["Color"].default_value=(0,0,0,1)
+        elif pass_name not in ("family","region","semantic_role"): emission.inputs["Color"].default_value=(0,0,0,1)
 
 
 def render_aov(scene, root, name, texture_base=None):
@@ -264,7 +273,10 @@ def debug_rgba(name,rgb,alpha,active):
 
 
 def shade(scene, arrays, environment_yaw_degrees=0, output_name="runtime-parity-f03.png", diagnostics=True, region_aov=None, canvas_offset=None, prepared_override=None,
-          illumination_yaw_offset_degrees=0.0, readability_fill=0.0):
+          illumination_yaw_offset_degrees=0.0, readability_fill=0.0,
+          equipment_readability=0.0, equipment_mask=None, metric_masks=None,
+          equipment_diffuse_irradiance_floor=None, equipment_floor_transition=0.15,
+          semantic_role_aov=None, shield_readability=None):
     diffuse_aov=arrays["diffuse_raw"]; family_aov=arrays["family"]
     # Blender surface alpha is geometric coverage, so texture alpha travels in
     # explicit raw scalar passes rather than being confused with AOV coverage.
@@ -304,6 +316,16 @@ def shade(scene, arrays, environment_yaw_degrees=0, output_name="runtime-parity-
     angle_yaw=math.radians(environment_yaw_degrees+illumination_yaw_offset_degrees);cy=math.cos(angle_yaw);sy=math.sin(angle_yaw)
     Renv=np.array(((cy,-sy,0),(sy,cy,0),(0,0,1)),np.float32)
     L0=transform@(-SUN_DIRECTION_R2);L=Renv@L0; L=L/np.linalg.norm(L)
+    equipment_pixels=np.asarray(equipment_mask,bool) if equipment_mask is not None else np.zeros(shape,bool)
+    shield_resolution=None
+    if shield_readability is not None and semantic_role_aov is not None:
+        shield_pixels=(np.asarray(semantic_role_aov)[...,0]>.5)&active
+        if np.any(shield_pixels):
+            response={"specular_luminance":float(np.mean(F[shield_pixels]@np.array((.2126,.7152,.0722),np.float32))),"smoothness":float(np.mean(S[shield_pixels])),"reflectivity":float(np.mean(R[shield_pixels]))}
+            shield_resolution=resolve_shield_readability(
+                "shield", response, dark_tail_cause="direct_diffuse_collapse")
+            if shield_resolution["enabled"]:
+                equipment_pixels=shield_pixels;equipment_diffuse_irradiance_floor=float(shield_resolution["floor"]);equipment_floor_transition=float(shield_resolution["transition_width"])
     Vfield=np.broadcast_to(V,N.shape); reflected=normalize(2*np.sum(N*Vfield,axis=-1,keepdims=True)*N-Vfield)
     cube_dirs=reflected@Renv@transform
     env=cube_sample(load_cube(REC/"s_environment.dds"),cube_dirs,(1-S)*8)
@@ -319,9 +341,28 @@ def shade(scene, arrays, environment_yaw_degrees=0, output_name="runtime-parity-
     ambient_diff=amb*D*.004*(1-R)[...,None]
     # Optional production-policy diagnostic: an orientation-independent diffuse
     # readability floor.  Zero preserves the captured runtime equations exactly.
-    readability_diff=D*np.float32(readability_fill)
+    readability_weight=np.full(shape,np.float32(readability_fill),np.float32)
+    if equipment_mask is not None:readability_weight+=np.asarray(equipment_mask,bool)*np.float32(equipment_readability)
+    # Legacy default invariant: readability_diff=D*np.float32(readability_fill)
+    readability_diff=D*readability_weight[...,None]
     env_spec=env*env_refl[...,None]*F*2.5
-    diffuse_lighting=ambient_diff+direct_diff+readability_diff; hdr=np.maximum(0,diffuse_lighting+env_spec+direct_spec)
+    diffuse_lighting=ambient_diff+direct_diff+readability_diff
+    equipment_shadow_fill=np.zeros_like(diffuse_lighting)
+    equipment_floor_state=None
+    if equipment_diffuse_irradiance_floor is not None and np.any(equipment_pixels):
+        # Smooth maximum in pre-albedo irradiance space. It is exactly inactive
+        # above floor+transition, so already-bright equipment is unchanged.
+        direct_irradiance=ndotl[...,None]*SUN_COLOUR*.004*(1-np.maximum(direct_refl,R))[...,None]
+        ambient_irradiance=amb*.004*(1-R)[...,None]
+        base_irradiance=direct_irradiance+ambient_irradiance+readability_weight[...,None]
+        irradiance_luminance=base_irradiance@np.array((.2126,.7152,.0722),np.float32)
+        floor=np.float32(equipment_diffuse_irradiance_floor);width=np.float32(equipment_floor_transition)
+        gap=floor-irradiance_luminance
+        delta=np.where(gap>=width,gap,np.where(gap<=-width,0,(gap+width)**2/(4*width)))
+        equipment_floor_state=np.where(gap>=width,2,np.where(gap<=-width,0,1))
+        equipment_shadow_fill[equipment_pixels]=D[equipment_pixels]*delta[equipment_pixels,None]
+        diffuse_lighting+=equipment_shadow_fill
+    hdr=np.maximum(0,diffuse_lighting+env_spec+direct_spec)
     if np.any(skin_pixels):
         nd=np.sum(N*L,axis=-1)
         wrap=np.clip(nd[...,None]*np.array((.8,.9,.3),np.float32)+np.array((.3,.5,.3),np.float32),0,1)*np.array((.694444,.694444,.444444),np.float32)
@@ -371,8 +412,21 @@ def shade(scene, arrays, environment_yaw_degrees=0, output_name="runtime-parity-
     def stats(mask):
         values=luminance[mask&active]
         if not len(values): return {"pixels":0,"p10":None,"median":None,"p90":None}
-        p=np.percentile(values,(10,50,90));return {"pixels":int(len(values)),"p10":float(p[0]),"median":float(p[1]),"p90":float(p[2])}
+        p=np.percentile(values,(10,50,90));return {"pixels":int(len(values)),"mean":float(values.mean()),"p10":float(p[0]),"median":float(p[1]),"p90":float(p[2])}
     metrics={"yaw":float(environment_yaw_degrees+illumination_yaw_offset_degrees),"sun_direction":L.tolist(),"readability_fill":float(readability_fill),"body_luminance":stats(active),"dark_pixel_percentage":float(100*np.count_nonzero(active&(luminance<.08))/max(np.count_nonzero(active),1)),"highlight_p95":float(np.percentile(luminance[active],95)) if np.any(active) else None,"clipped_pixel_percentage":float(100*np.count_nonzero(active&np.any(rgb>=.999,axis=-1))/max(np.count_nonzero(active),1))}
+    metrics["equipment_readability"]=float(equipment_readability)
+    metrics["equipment_diffuse_irradiance_floor"]=None if equipment_diffuse_irradiance_floor is None else float(equipment_diffuse_irradiance_floor)
+    metrics["shield_readability_resolution"]=shield_resolution
+    if equipment_floor_state is not None:
+        eligible=equipment_pixels&active;total=max(int(np.count_nonzero(eligible)),1)
+        metrics["equipment_shadow_fill_coverage"]={"pixels":int(np.count_nonzero(eligible)),"zero_percent":float(100*np.count_nonzero(eligible&(equipment_floor_state==0))/total),"transition_percent":float(100*np.count_nonzero(eligible&(equipment_floor_state==1))/total),"full_percent":float(100*np.count_nonzero(eligible&(equipment_floor_state==2))/total)}
+    if metric_masks:
+        def contribution(source,mask):
+            values=(source@np.array((.2126,.7152,.0722),np.float32))[mask&active]
+            return {"mean_linear_luminance":float(values.mean()) if len(values) else None,"pixels":int(len(values))}
+        def scalar_stats(source,mask):
+            values=np.asarray(source)[mask&active];return {"mean":float(values.mean()),"median":float(np.median(values)),"p10":float(np.percentile(values,10)),"p90":float(np.percentile(values,90))} if len(values) else None
+        metrics["component_contributions"]={name:{"diffuse_input":contribution(D,mask),"specular_input":contribution(F,mask),"smoothness":scalar_stats(S,mask),"reflectivity":scalar_stats(R,mask),"direct_diffuse":contribution(direct_diff,mask),"ambient_diffuse":contribution(ambient_diff,mask),"readability":contribution(readability_diff,mask),"equipment_shadow_fill":contribution(equipment_shadow_fill,mask),"environment_specular":contribution(env_spec,mask),"direct_specular":contribution(direct_spec,mask),"final_display":stats(mask)} for name,mask in metric_masks.items()}
     if region_aov is not None:
         metrics["cuirass_luminance"]=stats((region_aov[...,0]>.5)&(region_aov[...,1]<.5))
         metrics["skin_luminance"]=stats((region_aov[...,1]>.5)&(region_aov[...,0]<.5))

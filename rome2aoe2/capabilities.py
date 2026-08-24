@@ -43,6 +43,9 @@ CAPABILITIES.update({
     ("RENDER", "infantry_static_review_v1"): Capability(
         "RENDER", "infantry_static_review_v1", CapabilityStatus.VALIDATED,
         "approved Hastati oracle camera and captured runtime presentation"),
+    ("RENDER", "shield_readability_v1"): Capability(
+        "RENDER", "shield_readability_v1", CapabilityStatus.VALIDATED,
+        "HUMAN-approved material-response dispatch and diffuse-dominant 2.70/0.15 calibration"),
     **{("ANIMATION", key): Capability("ANIMATION", key, CapabilityStatus.VALIDATED, evidence)
        for key, evidence in {
            "discovery.fragment_state": "Rome II animation fragment state/path provenance",

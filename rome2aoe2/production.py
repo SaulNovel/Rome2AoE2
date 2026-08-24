@@ -94,6 +94,8 @@ def production_identity(manifest_hash: str, category: str, record: dict[str, Any
     if profile.get("identity_version", 2) >= 2:
         payload.update({"visual_scale": visual_scale,
                         "attachment_capabilities": profile["attachment_capabilities"]})
+    if profile.get("identity_version", 2) >= 3:
+        payload["render_capabilities"] = profile.get("render_capabilities", {})
     return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
