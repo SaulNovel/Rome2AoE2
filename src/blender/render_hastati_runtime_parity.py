@@ -22,6 +22,7 @@ from runtime_material_preparation import (prepare_decal_dirtmap,
     prepare_weighted, prepare_weighted_dirtmap, prepare_weighted_skin_dirtmap,
     shield_faction_colours)
 from rome2aoe2.shield_readability import resolve_shield_readability
+from rome2aoe2.weapon_readability import resolve_weapon_readability
 
 OUT = ROOT / "build/local-integration/rome2/runtime-parity-proof"
 AOV = OUT / "aov"
@@ -276,7 +277,8 @@ def shade(scene, arrays, environment_yaw_degrees=0, output_name="runtime-parity-
           illumination_yaw_offset_degrees=0.0, readability_fill=0.0,
           equipment_readability=0.0, equipment_mask=None, metric_masks=None,
           equipment_diffuse_irradiance_floor=None, equipment_floor_transition=0.15,
-          semantic_role_aov=None, shield_readability=None):
+          equipment_environment_specular_floor=None,
+          semantic_role_aov=None, shield_readability=None, weapon_readability=None):
     diffuse_aov=arrays["diffuse_raw"]; family_aov=arrays["family"]
     # Blender surface alpha is geometric coverage, so texture alpha travels in
     # explicit raw scalar passes rather than being confused with AOV coverage.
@@ -317,6 +319,9 @@ def shade(scene, arrays, environment_yaw_degrees=0, output_name="runtime-parity-
     Renv=np.array(((cy,-sy,0),(sy,cy,0),(0,0,1)),np.float32)
     L0=transform@(-SUN_DIRECTION_R2);L=Renv@L0; L=L/np.linalg.norm(L)
     equipment_pixels=np.asarray(equipment_mask,bool) if equipment_mask is not None else np.zeros(shape,bool)
+    floor_policies=[]
+    if equipment_diffuse_irradiance_floor is not None and np.any(equipment_pixels):
+        floor_policies.append((equipment_pixels.copy(),float(equipment_diffuse_irradiance_floor),float(equipment_floor_transition)))
     shield_resolution=None
     if shield_readability is not None and semantic_role_aov is not None:
         shield_pixels=(np.asarray(semantic_role_aov)[...,0]>.5)&active
@@ -325,7 +330,15 @@ def shade(scene, arrays, environment_yaw_degrees=0, output_name="runtime-parity-
             shield_resolution=resolve_shield_readability(
                 "shield", response, dark_tail_cause="direct_diffuse_collapse")
             if shield_resolution["enabled"]:
-                equipment_pixels=shield_pixels;equipment_diffuse_irradiance_floor=float(shield_resolution["floor"]);equipment_floor_transition=float(shield_resolution["transition_width"])
+                floor_policies.append((shield_pixels,float(shield_resolution["floor"]),float(shield_resolution["transition_width"])))
+    weapon_resolution=None
+    if weapon_readability is not None and semantic_role_aov is not None:
+        weapon_pixels=(np.asarray(semantic_role_aov)[...,1]>.5)&(np.asarray(semantic_role_aov)[...,0]<.5)&active
+        if np.any(weapon_pixels):
+            response={"specular_luminance":float(np.mean(F[weapon_pixels]@np.array((.2126,.7152,.0722),np.float32))),"smoothness":float(np.mean(S[weapon_pixels])),"reflectivity":float(np.mean(R[weapon_pixels]))}
+            weapon_resolution=resolve_weapon_readability("melee_weapon",response,tuple(weapon_readability.get("required_lower_tail_failures",())))
+            if weapon_resolution["enabled"]:
+                equipment_pixels=weapon_pixels;floor_policies.append((weapon_pixels,float(weapon_resolution["diffuse_floor"]),float(weapon_resolution["transition_width"])));equipment_environment_specular_floor=weapon_resolution.get("environment_reflection_floor")
     Vfield=np.broadcast_to(V,N.shape); reflected=normalize(2*np.sum(N*Vfield,axis=-1,keepdims=True)*N-Vfield)
     cube_dirs=reflected@Renv@transform
     env=cube_sample(load_cube(REC/"s_environment.dds"),cube_dirs,(1-S)*8)
@@ -346,21 +359,29 @@ def shade(scene, arrays, environment_yaw_degrees=0, output_name="runtime-parity-
     # Legacy default invariant: readability_diff=D*np.float32(readability_fill)
     readability_diff=D*readability_weight[...,None]
     env_spec=env*env_refl[...,None]*F*2.5
+    equipment_reflection_fill=np.zeros_like(env_spec)
+    if equipment_environment_specular_floor is not None and np.any(equipment_pixels):
+        env_luminance=env_spec@np.array((.2126,.7152,.0722),np.float32)
+        reflection_gap=np.maximum(0,np.float32(equipment_environment_specular_floor)-env_luminance)
+        tint=F/np.maximum(F.max(axis=-1,keepdims=True),1e-6)
+        equipment_reflection_fill[equipment_pixels]=tint[equipment_pixels]*reflection_gap[equipment_pixels,None]
+        env_spec+=equipment_reflection_fill
     diffuse_lighting=ambient_diff+direct_diff+readability_diff
     equipment_shadow_fill=np.zeros_like(diffuse_lighting)
     equipment_floor_state=None
-    if equipment_diffuse_irradiance_floor is not None and np.any(equipment_pixels):
+    if floor_policies:
         # Smooth maximum in pre-albedo irradiance space. It is exactly inactive
         # above floor+transition, so already-bright equipment is unchanged.
         direct_irradiance=ndotl[...,None]*SUN_COLOUR*.004*(1-np.maximum(direct_refl,R))[...,None]
         ambient_irradiance=amb*.004*(1-R)[...,None]
         base_irradiance=direct_irradiance+ambient_irradiance+readability_weight[...,None]
         irradiance_luminance=base_irradiance@np.array((.2126,.7152,.0722),np.float32)
-        floor=np.float32(equipment_diffuse_irradiance_floor);width=np.float32(equipment_floor_transition)
-        gap=floor-irradiance_luminance
-        delta=np.where(gap>=width,gap,np.where(gap<=-width,0,(gap+width)**2/(4*width)))
-        equipment_floor_state=np.where(gap>=width,2,np.where(gap<=-width,0,1))
-        equipment_shadow_fill[equipment_pixels]=D[equipment_pixels]*delta[equipment_pixels,None]
+        equipment_floor_state=np.zeros(shape,np.uint8);equipment_pixels=np.zeros(shape,bool)
+        for policy_pixels,policy_floor,policy_width in floor_policies:
+            floor=np.float32(policy_floor);width=np.float32(policy_width);gap=floor-irradiance_luminance
+            delta=np.where(gap>=width,gap,np.where(gap<=-width,0,(gap+width)**2/(4*width)))
+            state=np.where(gap>=width,2,np.where(gap<=-width,0,1));equipment_floor_state[policy_pixels]=state[policy_pixels];equipment_pixels|=policy_pixels
+            equipment_shadow_fill[policy_pixels]=D[policy_pixels]*delta[policy_pixels,None]
         diffuse_lighting+=equipment_shadow_fill
     hdr=np.maximum(0,diffuse_lighting+env_spec+direct_spec)
     if np.any(skin_pixels):
@@ -416,7 +437,9 @@ def shade(scene, arrays, environment_yaw_degrees=0, output_name="runtime-parity-
     metrics={"yaw":float(environment_yaw_degrees+illumination_yaw_offset_degrees),"sun_direction":L.tolist(),"readability_fill":float(readability_fill),"body_luminance":stats(active),"dark_pixel_percentage":float(100*np.count_nonzero(active&(luminance<.08))/max(np.count_nonzero(active),1)),"highlight_p95":float(np.percentile(luminance[active],95)) if np.any(active) else None,"clipped_pixel_percentage":float(100*np.count_nonzero(active&np.any(rgb>=.999,axis=-1))/max(np.count_nonzero(active),1))}
     metrics["equipment_readability"]=float(equipment_readability)
     metrics["equipment_diffuse_irradiance_floor"]=None if equipment_diffuse_irradiance_floor is None else float(equipment_diffuse_irradiance_floor)
+    metrics["equipment_environment_specular_floor"]=None if equipment_environment_specular_floor is None else float(equipment_environment_specular_floor)
     metrics["shield_readability_resolution"]=shield_resolution
+    metrics["weapon_readability_resolution"]=weapon_resolution
     if equipment_floor_state is not None:
         eligible=equipment_pixels&active;total=max(int(np.count_nonzero(eligible)),1)
         metrics["equipment_shadow_fill_coverage"]={"pixels":int(np.count_nonzero(eligible)),"zero_percent":float(100*np.count_nonzero(eligible&(equipment_floor_state==0))/total),"transition_percent":float(100*np.count_nonzero(eligible&(equipment_floor_state==1))/total),"full_percent":float(100*np.count_nonzero(eligible&(equipment_floor_state==2))/total)}

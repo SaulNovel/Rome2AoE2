@@ -76,8 +76,8 @@ class ShieldReadabilityPolicyTests(unittest.TestCase):
 
     def test_runtime_floor_is_pre_albedo_and_does_not_mutate_fsr(self):
         source = (ROOT / "src/blender/render_hastati_runtime_parity.py").read_text()
-        self.assertIn("equipment_pixels=shield_pixels", source)
-        self.assertIn("equipment_shadow_fill[equipment_pixels]=D[equipment_pixels]*delta", source)
+        self.assertIn("floor_policies.append((shield_pixels", source)
+        self.assertIn("equipment_shadow_fill[policy_pixels]=D[policy_pixels]*delta", source)
         self.assertIn("diffuse_lighting+=equipment_shadow_fill", source)
         self.assertNotIn("F[equipment_pixels]=", source)
         self.assertNotIn("S[equipment_pixels]=", source)

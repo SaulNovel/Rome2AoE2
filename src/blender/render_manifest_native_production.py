@@ -49,17 +49,17 @@ def bounds(path):
  im=bpy.data.images.load(str(path.resolve()),check_existing=False);w,h=im.size;a=list(im.pixels)[3::4];pts=[(i%w,h-1-i//w) for i,v in enumerate(a) if v>0.0];bpy.data.images.remove(im);return None if not pts else [min(x for x,y in pts),min(y for x,y in pts),max(x for x,y in pts)+1,max(y for x,y in pts)+1]
 def alpha_top_down(path):
  im=bpy.data.images.load(str(path.resolve()),check_existing=False);w,h=im.size;a=list(im.pixels)[3::4];bpy.data.images.remove(im);return w,h,[a[(h-1-y)*w+x] for y in range(h) for x in range(w)]
-def confirm_edge(scene,doc,a,illumination,stem,visual_scale,effective_scale,master_bounds,direction,ordinal,shield_readability=None):
+def confirm_edge(scene,doc,a,illumination,stem,visual_scale,effective_scale,master_bounds,direction,ordinal,shield_readability=None,weapon_readability=None):
  spec=overscan_camera([MASTER,MASTER],effective_scale);validation=a.output_root/"validation/overscan/main/master"/stem;original_ortho=scene.camera.data.ortho_scale
  try:
   scene.camera.data.ortho_scale=spec["orthographic_scale"]
-  exact.exact_render(scene,doc,validation.parent,validation.name,spec["resolution"][1],environment_yaw_degrees=illumination["captured_environment_yaw_degrees"],readability_fill=illumination["readability_fill_linear"],shield_readability=shield_readability)
+  exact.exact_render(scene,doc,validation.parent,validation.name,spec["resolution"][1],environment_yaw_degrees=illumination["captured_environment_yaw_degrees"],readability_fill=illumination["readability_fill_linear"],shield_readability=shield_readability,weapon_readability=weapon_readability)
  finally:
   scene.camera.data.ortho_scale=original_ortho
  w,h,alpha=alpha_top_down(validation);outside=outside_alpha_metrics(alpha,[w,h],spec["production_crop"])
  return confirm_canvas_bounds(visual_scale,a.category,direction,ordinal,"main",master_bounds,[MASTER,MASTER],spec,outside)
 def main():
- a=args();visual_scale=validate_visual_scale(a.visual_scale);profile=production_profile(a.profile_name);canonical_scale=float(profile.get("camera",{}).get("orthographic_scale",SCALE));effective_scale=effective_orthographic_scale(visual_scale,canonical_scale);illumination=profile["main_illumination"];shield_readability=profile.get("render_capabilities",{}).get("shield_readability");doc=json.loads(a.static_input.read_text());bpy.ops.wm.open_mainfile(filepath=str(a.input_blend.resolve()));scene=bpy.context.scene;arms=[o for o in scene.objects if o.type=="ARMATURE"]
+ a=args();visual_scale=validate_visual_scale(a.visual_scale);profile=production_profile(a.profile_name);canonical_scale=float(profile.get("camera",{}).get("orthographic_scale",SCALE));effective_scale=effective_orthographic_scale(visual_scale,canonical_scale);illumination=profile["main_illumination"];shield_readability=profile.get("render_capabilities",{}).get("shield_readability");weapon_readability=profile.get("render_capabilities",{}).get("weapon_readability");doc=json.loads(a.static_input.read_text());bpy.ops.wm.open_mainfile(filepath=str(a.input_blend.resolve()));scene=bpy.context.scene;arms=[o for o in scene.objects if o.type=="ARMATURE"]
  if len(arms)!=1 or len(arms[0].data.bones)!=50:raise RuntimeError("production requires one 50-bone native armature")
  arm=arms[0];action=arm.animation_data.action;before=fingerprint(action)
  if before!=a.action_fingerprint:raise RuntimeError("frozen Action fingerprint mismatch")
@@ -74,12 +74,12 @@ def main():
   for ordinal,value in enumerate(samples):
    frame(scene,value);stem=f"{a.category}-direction-{direction:02d}-frame-{ordinal:03d}.png";master=a.output_root/"main/master"/stem;x1=a.output_root/"main/x1"/stem;x2=a.output_root/"main/x2"/stem
    x1.parent.mkdir(parents=True,exist_ok=True);x2.parent.mkdir(parents=True,exist_ok=True);master.parent.mkdir(parents=True,exist_ok=True)
-   if not master.is_file() or not x1.is_file() or not x2.is_file():exact.exact_render(scene,doc,master.parent,stem,MASTER,environment_yaw_degrees=illumination["captured_environment_yaw_degrees"],readability_fill=illumination["readability_fill_linear"],shield_readability=shield_readability);reduce(master,x2,400);reduce(master,x1,200)
+   if not master.is_file() or not x1.is_file() or not x2.is_file():exact.exact_render(scene,doc,master.parent,stem,MASTER,environment_yaw_degrees=illumination["captured_environment_yaw_degrees"],readability_fill=illumination["readability_fill_linear"],shield_readability=shield_readability,weapon_readability=weapon_readability);reduce(master,x2,400);reduce(master,x1,200)
    master_bounds=bounds(master);b1,b2=bounds(x1),bounds(x2)
    if b1 is None or b2 is None:raise RuntimeError("unexpected empty production frame")
    canvas_validation=validate_canvas_bounds(visual_scale,a.category,direction,ordinal,master_bounds,[MASTER,MASTER])
    try:
-    if canvas_validation["edge_contact"]:canvas_validation=confirm_edge(scene,doc,a,illumination,stem,visual_scale,effective_scale,master_bounds,direction,ordinal,shield_readability)
+    if canvas_validation["edge_contact"]:canvas_validation=confirm_edge(scene,doc,a,illumination,stem,visual_scale,effective_scale,master_bounds,direction,ordinal,shield_readability,weapon_readability)
    except ConverterError as error:
     a.report.parent.mkdir(parents=True,exist_ok=True);a.report.write_text(json.dumps({"failure":error.as_dict()},indent=2,sort_keys=True)+"\n");raise
    records.append({"direction":direction,"direction_yaw":DIRECTIONS[direction],"output_frame":ordinal,"source_sample":ordinal,"blender_frame":value,"main_master":str(master),"main_x1":str(x1),"main_x2":str(x2),"master_bounds":master_bounds,"x1_bounds":b1,"x2_bounds":b2,"canvas_validation":canvas_validation})
