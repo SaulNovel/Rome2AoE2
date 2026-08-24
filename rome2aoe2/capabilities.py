@@ -49,6 +49,9 @@ CAPABILITIES.update({
     ("RENDER", "weapon_readability_v1"): Capability(
         "RENDER", "weapon_readability_v1", CapabilityStatus.VALIDATED,
         "HUMAN-approved material-response dispatch and mixed 1.80/0.15/0.04 calibration"),
+    ("INTEGRATION", "generated_corpse_decay_v1"): Capability(
+        "INTEGRATION", "generated_corpse_decay_v1", CapabilityStatus.VALIDATED,
+        "Optional final-native-death-pose linger and deterministic sprite-space sink"),
     **{("ANIMATION", key): Capability("ANIMATION", key, CapabilityStatus.VALIDATED, evidence)
        for key, evidence in {
            "discovery.fragment_state": "Rome II animation fragment state/path provenance",

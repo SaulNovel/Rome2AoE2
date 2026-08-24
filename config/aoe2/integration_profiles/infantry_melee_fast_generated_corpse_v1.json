@@ -1,0 +1,20 @@
+{
+  "format": "rome2aoe2.aoe2-integration-profile",
+  "version": 2,
+  "id": "infantry_melee_fast_generated_corpse_v1",
+  "allocation_namespace": "infantry_melee_visual_test_v1",
+  "purpose": "TEST / NON-PRODUCTION generated infantry corpse transition.",
+  "template_unit_id": 74,
+  "corpse_template_unit_id": 152,
+  "expected_template_corpse_graphic_id": 1103,
+  "corpse": {
+    "capability": "generated_corpse_decay_v1",
+    "mode": "generated_corpse_decay_v1",
+    "corpse_linger_seconds": 2.0,
+    "corpse_sink_seconds": 1.5,
+    "corpse_fps": 10.0,
+    "sink_pixels_x2": 28,
+    "fade_final_fraction": 0.35,
+    "shadow_policy": "linger_then_fade_during_sink"
+  }
+}
