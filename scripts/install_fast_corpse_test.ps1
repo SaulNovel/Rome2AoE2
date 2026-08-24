@@ -24,6 +24,11 @@ if (Test-Path -LiteralPath $destinationMod) {
 }
 Copy-Item -LiteralPath $sourceMod -Destination $destinationMod -Recurse
 Copy-Item -LiteralPath $sourceScenario -Destination $destinationScenario -Force:$ReplaceExisting
+$receiptDocument = Get-Content -LiteralPath $receiptPath -Raw | ConvertFrom-Json
+$activationArgs = @('-B',(Join-Path $root 'src\aoe2\activate_local_test_mod.py'),'--status',(Join-Path $AoEProfile 'mods\mod-status.json'),'--target',$receiptDocument.mod_title)
+foreach ($conflict in $receiptDocument.conflicting_mod_titles) { $activationArgs += @('--disable',$conflict) }
+python @activationArgs
+if ($LASTEXITCODE -ne 0) { throw 'FAST corpse data-mod activation failed' }
 $report = Join-Path (Split-Path -Parent $receiptPath) 'install-verification.json'
 python -B (Join-Path $root 'src\aoe2\verify_manifest_dev_install.py') --receipt $receiptPath --mod $destinationMod --scenario $destinationScenario --report $report
 if ($LASTEXITCODE -ne 0) { throw 'FAST corpse installation verification failed' }
