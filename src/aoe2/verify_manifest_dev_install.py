@@ -8,6 +8,13 @@ from aoe2.dat_integration import sha256
 from aoe2.scenario_validation import validate_scenario
 def verify(receipt_path,mod,scenario_path):
  receipt=json.loads(receipt_path.read_text());dat=mod/"resources/_common/dat/empires2_x2_p1.dat"
+ if receipt.get("format")=="rome2aoe2.fast-attack-tail-dev-integration":
+  if sha256(dat)!=receipt["dat"]["sha256"] or sha256(scenario_path)!=receipt["scenario_sha256"]:raise RuntimeError("installed attack-tail DAT/scenario hash mismatch")
+  workspace=GenieWorkspace.load(dat);scenario_validation=validate_scenario(scenario_path,workspace,(receipt["allocation"]["unit_id"],));u=workspace.unit_manager.get(receipt["allocation"]["unit_id"]);g=workspace.graphic_manager.get(receipt["attack"]["graphic_id"]);corpse=workspace.unit_manager.get(receipt["allocation"]["corpse_unit_id"]);cg=workspace.graphic_manager.get(receipt["corpse"]["graphic_id"]);runtime={"reload_time":u.reload_time,"frame_delay":u.frame_delay,"interrupt_frame":u.interrupt_frame,"idle_attack_graphic_id":u.idle_attack_graphic_id,"sequence_type":workspace.dat.sprites[g.id].sequence_type}
+  attack_path=mod/"resources/_common/drs/graphics"/Path(receipt["attack"]["sld"]).name;corpse_path=mod/"resources/_common/drs/graphics"/Path(receipt["corpse"]["sld"]["path"]).name
+  if runtime!=receipt["runtime"] or (g.frame_count,g.angle_count)!=(receipt["attack"]["frame_count"],receipt["attack"]["angle_count"]) or abs(g.frame_duration-receipt["attack"]["frame_duration"])>1e-7 or sha256(attack_path)!=receipt["attack"]["sha256"]:raise RuntimeError("installed attack-tail contract mismatch")
+  if u.dead_unit_id!=corpse.id or corpse.standing_sprite_id1!=cg.id or (cg.frame_count,cg.angle_count)!=(receipt["corpse"]["frame_count"],receipt["corpse"]["angle_count"]) or abs(cg.frame_duration-receipt["corpse"]["frame_duration"])>1e-7 or sha256(corpse_path)!=receipt["corpse"]["sld"]["sha256"]:raise RuntimeError("installed approved corpse contract changed")
+  return {"format":"rome2aoe2.fast-attack-tail-install-verification","version":1,"mod":str(mod),"scenario":str(scenario_path),"scenario_validation":scenario_validation,"attack":receipt["attack"],"runtime":runtime,"corpse":{"unit_id":corpse.id,"graphic_id":cg.id,"frame_count":cg.frame_count,"frame_duration":cg.frame_duration,"angle_count":cg.angle_count,"sld_sha256":sha256(corpse_path)},"validation":"passed"}
  if receipt.get("format")=="rome2aoe2.fast-corpse-dev-integration":
   if receipt.get("release_eligible") is not False:raise RuntimeError("FAST corpse receipt unexpectedly release eligible")
   if sha256(dat)!=receipt["dat"]["sha256"] or sha256(scenario_path)!=receipt["scenario_sha256"]:raise RuntimeError("installed FAST corpse DAT/scenario hash mismatch")
