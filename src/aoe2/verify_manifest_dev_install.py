@@ -13,12 +13,14 @@ def verify(receipt_path,mod,scenario_path):
   if sha256(dat)!=receipt["dat"]["sha256"] or sha256(scenario_path)!=receipt["scenario_sha256"]:raise RuntimeError("installed FAST corpse DAT/scenario hash mismatch")
   workspace=GenieWorkspace.load(dat);scenario_validation=validate_scenario(scenario_path,workspace,(receipt["allocation"]["unit_id"],));live=workspace.unit_manager.get(receipt["allocation"]["unit_id"]);corpse=workspace.unit_manager.get(receipt["allocation"]["corpse_unit_id"])
   if live.dead_unit_id!=corpse.id or live.dead_unit_id==receipt["profile"]["corpse_template_unit_id"] or corpse.standing_sprite_id1!=receipt["allocation"]["corpse_graphic_id"]:raise RuntimeError("installed FAST corpse mapping mismatch")
+  graphic=workspace.graphic_manager.get(receipt["allocation"]["corpse_graphic_id"]);expected=receipt["corpse_graphic"]
+  if (graphic.frame_count,graphic.angle_count)!=(expected["frame_count"],expected["angle_count"]) or abs(graphic.frame_duration-expected["frame_duration"])>1e-7:raise RuntimeError("installed FAST corpse graphic timing mismatch")
   hashes={}
   for asset in receipt["assets"]:
    path=mod/"resources/_common/drs/graphics"/Path(asset["path"]).name
    if sha256(path)!=asset["sha256"]:raise RuntimeError(f"installed FAST corpse SLD hash mismatch: {path.name}")
    hashes[path.name]=asset["sha256"]
-  return {"format":"rome2aoe2.fast-corpse-install-verification","version":2,"mod":str(mod),"scenario":str(scenario_path),"dat_sha256":sha256(dat),"live_unit_id":live.id,"corpse_unit_id":corpse.id,"corpse_graphic_id":corpse.standing_sprite_id1,"sld_hashes":hashes,"scenario_validation":scenario_validation,"validation":"passed"}
+  return {"format":"rome2aoe2.fast-corpse-install-verification","version":3,"mod":str(mod),"scenario":str(scenario_path),"dat_sha256":sha256(dat),"live_unit_id":live.id,"corpse_unit_id":corpse.id,"corpse_graphic_id":corpse.standing_sprite_id1,"corpse_graphic":{"frame_count":graphic.frame_count,"frame_duration":graphic.frame_duration,"angle_count":graphic.angle_count},"sld_hashes":hashes,"scenario_validation":scenario_validation,"validation":"passed"}
  if sha256(dat)!=receipt["output_dat"]["sha256"]:raise RuntimeError("installed DAT hash mismatch")
  workspace=GenieWorkspace.load(dat);unit_id=receipt["allocation"]["unit_id"];unit=workspace.unit_manager.get(unit_id);expected=receipt["unit"]["graphic_references"];actual={"idle":unit.standing_sprite_id1,"walk":unit.walking_graphic_id,"attack":unit.attack_graphic_id,"death":unit.dying_sprite_id}
  if actual!=expected or unit.standing_sprite_id2!=expected["idle"] or unit.dead_unit_id!=receipt["unit"]["corpse_unit_id"]:raise RuntimeError("installed unit mapping mismatch")

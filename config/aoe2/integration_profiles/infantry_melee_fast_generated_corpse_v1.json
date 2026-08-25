@@ -8,13 +8,14 @@
   "corpse_template_unit_id": 152,
   "expected_template_corpse_graphic_id": 1103,
   "corpse": {
-    "capability": "generated_corpse_decay_v1",
-    "mode": "generated_corpse_decay_v1",
-    "corpse_linger_seconds": 2.0,
-    "corpse_sink_seconds": 1.5,
-    "corpse_fps": 10.0,
-    "sink_pixels_x2": 28,
-    "fade_final_fraction": 0.35,
-    "shadow_policy": "linger_then_fade_during_sink"
+    "capability": "physical_ground_world_height_v1",
+    "mode": "physical_ground_world_height_v1",
+    "corpse_linger_seconds": 10.0,
+    "corpse_sink_seconds": 530.0,
+    "corpse_fps": 0.1,
+    "world_sink_safety_margin": 0.01,
+    "fade_final_fraction": 0.0,
+    "shadow_policy": "no_corpse_shadow",
+    "release_eligible": false
   }
 }

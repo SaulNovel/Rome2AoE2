@@ -6,7 +6,7 @@ from PIL import Image
 from aoe2.dat_integration import apply_generated_corpse_contract,resolve_allocation,resolve_corpse_allocation,validate_generated_corpse_contract
 from aoe2.sld import parse_sld,serialize_sld
 from aoe2.sld_authoring import author_facet_animation
-from rome2aoe2.corpse_decay import GENERATED,generate_decay_images,resolve_corpse_policy,transform_frame
+from rome2aoe2.corpse_decay import PHYSICAL_GROUND,GENERATED,generate_decay_images,generate_physical_ground_images,physical_sink_states,resolve_corpse_policy,transform_frame
 
 class Manager:
  def __init__(self,occupied):self.occupied=set(occupied)
@@ -22,9 +22,15 @@ class CorpseDecayIntegrationTests(unittest.TestCase):
   self.assertEqual("inherit_template",resolve_corpse_policy()["mode"]);p=resolve_corpse_policy({"mode":GENERATED});self.assertEqual((10,20,15,35),(p["corpse_fps"],round(p["corpse_linger_seconds"]*p["corpse_fps"]),round(p["corpse_sink_seconds"]*p["corpse_fps"]),35))
  def test_final_composition_anchor_sink_fade_and_shadow(self):
   main=Image.new("RGBA",(40,40));main.putpixel((7,8),(200,10,10,255));main.putpixel((30,9),(180,180,180,255));shadow=Image.new("RGBA",(40,40));shadow.putpixel((8,10),(0,0,0,128));frames=generate_decay_images(main,shadow,{"mode":GENERATED,"corpse_fps":2,"corpse_linger_seconds":1,"corpse_sink_seconds":1,"sink_pixels_x2":4})
-  self.assertEqual(main.tobytes(),frames[0][0].tobytes());self.assertEqual((7,8),frames[0][0].getchannel("A").getbbox()[:2]);self.assertEqual((7,12),transform_frame(main,4,1).getchannel("A").getbbox()[:2]);self.assertTrue(all(f[2]["y_offset"]>=0 for f in frames));self.assertTrue(all(f[2]["shadow_alpha"]<=1 for f in frames));self.assertIsNotNone(frames[-1][2]["clip_y"]);self.assertEqual(0,frames[-1][2]["alpha"]);self.assertEqual(0,frames[-1][2]["shadow_alpha"])
+  self.assertEqual(main.tobytes(),frames[0][0].tobytes());self.assertEqual((7,8),frames[0][0].getchannel("A").getbbox()[:2]);self.assertEqual((7,12),transform_frame(main,4,1).getchannel("A").getbbox()[:2]);self.assertTrue(all(f[2]["y_offset"]>=0 for f in frames));self.assertTrue(all(f[2]["shadow_alpha"]<=1 for f in frames));self.assertEqual(0,frames[-1][2]["alpha"]);self.assertEqual(0,frames[-1][2]["shadow_alpha"])
  def test_generated_allocation_is_deterministic_and_default_has_no_extra(self):
   default=resolve_allocation(Workspace(),self.registry,self.manifest_hash,"infantry_melee_visual_test_v1");self.assertNotIn("corpse_unit_id",default);a=resolve_allocation(Workspace(),self.registry,self.manifest_hash,"infantry_melee_visual_test_v1",GENERATED);b=resolve_allocation(Workspace(),self.registry,self.manifest_hash,"infantry_melee_visual_test_v1",GENERATED);self.assertEqual(a,b);self.assertEqual((2114,17076),(a["corpse_unit_id"],a["corpse_graphic_id"]))
+ def test_no_corpse_shadow_policy_preserves_first_main_frame(self):
+  main=Image.new("RGBA",(40,40));main.putpixel((7,8),(200,10,10,255));shadow=Image.new("RGBA",(40,40));shadow.putpixel((8,10),(0,0,0,128));frames=generate_decay_images(main,shadow,{"mode":GENERATED,"corpse_fps":2.5,"corpse_linger_seconds":3.2,"corpse_sink_seconds":40,"sink_pixels_x2":96,"fade_final_fraction":0,"shadow_policy":"no_corpse_shadow"})
+  self.assertEqual(108,len(frames));self.assertEqual(main.tobytes(),frames[0][0].tobytes());self.assertTrue(all(frame[1].getchannel("A").getbbox() is None for frame in frames));self.assertTrue(all(frame[2]["shadow_alpha"]==0 for frame in frames))
+ def test_physical_world_height_54_frame_policy_and_occlusion(self):
+  main=Image.new("RGBA",(8,8));main.putpixel((2,2),(200,10,10,255));main.putpixel((3,2),(20,30,40,255));heights=[float("nan")]*64;heights[2*8+2]=.2;heights[2*8+3]=.8;policy={"mode":PHYSICAL_GROUND,"corpse_fps":.1,"corpse_linger_seconds":10,"corpse_sink_seconds":530,"shadow_policy":"no_corpse_shadow"};states=physical_sink_states(policy,.81);frames,audit=generate_physical_ground_images(main,heights,policy,.81,(0,1))
+  self.assertEqual(54,len(states));self.assertEqual(0,states[0]["world_sink"]);self.assertGreater(states[1]["world_sink"],0);self.assertAlmostEqual(.81,states[-1]["world_sink"]);self.assertEqual(main.tobytes(),frames[0][0].tobytes());self.assertIsNone(frames[-1][0].getchannel("A").getbbox());self.assertTrue(all(f[1].getchannel("A").getbbox() is None for f in frames));self.assertTrue(audit["complete_source_coverage"])
  def test_contract_remaps_only_generated_path_and_rejects_militia_graphic(self):
   live,corpse=Unit(2113),Unit(2114);apply_generated_corpse_contract(live,corpse,17076);audit=validate_generated_corpse_contract(live,corpse,17076,(1103,));self.assertEqual(2114,live.dead_unit_id);self.assertFalse(audit["retained"])
  def test_sld_repeat_is_deterministic_and_readable(self):
