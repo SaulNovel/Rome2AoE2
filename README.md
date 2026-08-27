@@ -1,5 +1,14 @@
 # Rome2AoE2
 
+Rome2AoE2 is a generic conversion pipeline that turns Total War: Rome II units into native Age of Empires II: Definitive Edition sprites and mods. New contributors and Codex sessions should begin with [Project overview](docs/PROJECT_OVERVIEW.md), then follow [New machine setup](docs/NEW_MACHINE_SETUP.md). The [dependency inventory](docs/DEPENDENCIES.md), [third-party patch procedure](docs/THIRD_PARTY_PATCHES.md), and [private fixture guide](data/fixtures/README.md) record the machine-independent contract.
+
+Quick offline verification after setup:
+
+```powershell
+.venv\Scripts\python.exe scripts\doctor.py --fixtures
+.venv\Scripts\python.exe scripts\smoke_offline.py
+```
+
 > A fully automated pipeline that converts units from **Total War: Rome II** into playable **Age of Empires II: Definitive Edition** units.
 
 ---

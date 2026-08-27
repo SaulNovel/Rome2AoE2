@@ -30,9 +30,17 @@ def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def expected_install_paths(mod: Path) -> tuple[Path, Path]:
+    """Derive the frozen install locations from an explicitly supplied mod path."""
+    profile = mod.parents[2]
+    return (
+        profile / "mods/local/Rome2AoE2 Hastati Dev Test",
+        profile / "resources/_common/scenario/Rome2AoE2HastatiDevTest.aoe2scenario",
+    )
+
+
 def verify(mod: Path, scenario_path: Path, source_mod: Path) -> dict:
-    expected_mod = Path(r"C:\Users\sauln\Games\Age of Empires 2 DE\76561198088401383\mods\local\Rome2AoE2 Hastati Dev Test")
-    expected_scenario = Path(r"C:\Users\sauln\Games\Age of Empires 2 DE\76561198088401383\resources\_common\scenario\Rome2AoE2HastatiDevTest.aoe2scenario")
+    expected_mod, expected_scenario = expected_install_paths(mod)
     if mod != expected_mod or scenario_path != expected_scenario:
         raise RuntimeError("integration test is not installed at the frozen paths")
 

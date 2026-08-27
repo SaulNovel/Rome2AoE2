@@ -1,0 +1,1441 @@
+{
+  "files": [
+    {
+      "path": "animations/animation_fragments/rome_man_sword_shield_fragment.txt",
+      "sha256": "dff8c7bc5b072d4b736fd836311ccd53ef7531293674fcb76c392de9c9dd4be4",
+      "size": 279623,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "animations/skeletons/rome_man_game.anim",
+      "sha256": "ca368361107eff2098f998c6d6e40db172da8dc1ca21122f29402bc422273770",
+      "size": 3409,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "animations/skeletons/rome_man_game.bone_inv_trans_mats",
+      "sha256": "064e3afad1e14eb6438f723ef941c4ffe39d7dd81817e96b61432bd6ace2e524",
+      "size": 2408,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/armour/italian_square_muscled_cuirass_a.rigid_model_v2",
+      "sha256": "83e7edbca37c3f5e03ac748ce0f129663a0b3ea6fa222fa8a124588f15324fdf",
+      "size": 76476,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/armour/italian_square_muscled_cuirass_c.rigid_model_v2",
+      "sha256": "27e98590fa72ac2df924c357e117c0896f1911f81fb5c95037322ed3475120b2",
+      "size": 78380,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/armour/roman_chestplate.variantmeshdefinition",
+      "sha256": "0f093510e80b29b49a35c53fe85469f7a994c74bb0b433220dbfa2a67650988e",
+      "size": 2795,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/armour/roman_hamata.variantmeshdefinition",
+      "sha256": "424a710ce509938600285bf2f586a8d7e2361c7c2ebab8f4c4c58295db975f5b",
+      "size": 495,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/armour/roman_lorica_hamata1.rigid_model_v2",
+      "sha256": "c1085767065a7bec8d567f63fc3649218896334b92e1ec0b2764b44cf44d4e1b",
+      "size": 182046,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/armour/tex/default_decaldirtmap.dds",
+      "sha256": "b00092604e8676b980ac9ee755188a6203ef658361223d0388d7722a66164043",
+      "size": 349680,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/armour/tex/italian_square_muscle_a_diffuse.dds",
+      "sha256": "abd81524d50595f2289c8aef66646e2115b7dbdc25e3b812c2d27e60a40c35eb",
+      "size": 87528,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/armour/tex/italian_square_muscle_a_gloss_map.dds",
+      "sha256": "4098a7c4cdd467706ce3de216f75fd514cdbfd732f8446de48da9413f1edc40c",
+      "size": 87520,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/armour/tex/italian_square_muscle_a_normal.dds",
+      "sha256": "0abc7db87ff7b28626aeb5cf3311474691aa1a8a3fd294f3d998433759c4ef85",
+      "size": 174928,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/armour/tex/italian_square_muscle_a_specular.dds",
+      "sha256": "5d404be8ae7d9e374d2a189d54e437d5bfa56813adae3451edb38bd62090f8bc",
+      "size": 87528,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/armour/tex/italian_square_muscled_cuirass_c_diffuse.dds",
+      "sha256": "4955732a1fe53ab65418fcc79c350ec4aa07a41413355edebaf45a82ea51f478",
+      "size": 174904,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/armour/tex/italian_square_muscled_cuirass_c_gloss_map.dds",
+      "sha256": "48580203cab5b1fb135ce2756a3d300af60f5ca727b1e48a69fa8230a92d7c4e",
+      "size": 174896,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/armour/tex/italian_square_muscled_cuirass_c_normal.dds",
+      "sha256": "e372b0c1e0264bd6a763fb8346d0fa6ec35695b40a715eb7cd208dc547f75184",
+      "size": 349680,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/armour/tex/italian_square_muscled_cuirass_c_specular.dds",
+      "sha256": "cde87f4689606c56315d35053127c0bb700b41ab5884d60b2c540a568a859981",
+      "size": 174904,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/armour/tex/lorica_hamata_diffuse.dds",
+      "sha256": "60cd733f707ce01e7a2e443980ef1d5825c73be3a9999c38fcd04b7a3469777e",
+      "size": 349672,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/armour/tex/lorica_hamata_gloss_map.dds",
+      "sha256": "52a7f838ca88529448d91fdc876bcbcbc2e960428d310d2fa2319b8412329c6a",
+      "size": 349664,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/armour/tex/lorica_hamata_mask.dds",
+      "sha256": "17a7740464b562fc4ed0429acdcd8893d899717fbd5a6398180827a96cf8b984",
+      "size": 699216,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/armour/tex/lorica_hamata_normal.dds",
+      "sha256": "c5ffe84bee5a5ca5adcf24873663bf1f9cf7e15d50663b741430ac86e4889521",
+      "size": 699216,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/armour/tex/lorica_hamata_specular.dds",
+      "sha256": "6729216b2e7f3e8ee4879d1e8e76a88c51daf47763e733fd09bb7240d7b8cfbd",
+      "size": 349672,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/crests/black_feather_01.rigid_model_v2",
+      "sha256": "1a6736bef39c7490f8b41d85d9da7115e70a88fd6d03a1e5b09ba769886c7e02",
+      "size": 21756,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/crests/black_feather_01_base.rigid_model_v2",
+      "sha256": "e7393790717fd5c0393885c35a4aa55d5ea1cfd9aad1de8dd0545f6c38f6f046",
+      "size": 14040,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/crests/black_feather_03.rigid_model_v2",
+      "sha256": "f82e200b1c50b9333bf28b6f01701ab4d7a71d85d4845e341d0663b5e49d9040",
+      "size": 28932,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/crests/black_feather_03_base.rigid_model_v2",
+      "sha256": "39dc8719c8517a559004d0e7f709d2ea61aca27ec17ab67e52fc3055fe34336b",
+      "size": 23316,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/crests/black_horsehair_split_01.rigid_model_v2",
+      "sha256": "d7e4a5b270a2e3fb92a145f137161c892e269a11d91c139c3410007875a454bf",
+      "size": 77730,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/crests/phyrgian_crest_1_black.rigid_model_v2",
+      "sha256": "0b9b379dbb4fa104c37e6c33dc253739fa8f65e71d89a879c760bacf3708b763",
+      "size": 39178,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/crests/phyrgian_crest_1_red.rigid_model_v2",
+      "sha256": "e9192b40969323a94acca834a81a5ad6160fcec30e0b550327910fcc0b24704c",
+      "size": 39178,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/crests/phyrgian_crest_1_white.rigid_model_v2",
+      "sha256": "419bfa326451c6040b11e60d391a481fde8d7608401e5ca338dee711091f96fe",
+      "size": 39178,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/crests/tex/black_feather_base_diffuse.dds",
+      "sha256": "da027191fd842609bba3b12dd7fc2d05e91980120a193deabf1eb6c4b9450392",
+      "size": 11064,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/crests/tex/black_feather_diffuse.dds",
+      "sha256": "50aa67904377a1e356bd9d86123fb8418d3eb634f15058698dc6cc32df517d09",
+      "size": 11064,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/crests/tex/black_horsehair_diffuse.dds",
+      "sha256": "1d6becad84cf535b060bcad986bb8062becd340b6f43ad315061cdf3922ac0e5",
+      "size": 43832,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/crests/tex/feather_base_gloss_map.dds",
+      "sha256": "eb3f2a2e6ef4213e2b6328c4e22914aa209a4f3847b1e15eb1ec3ec5290c274b",
+      "size": 11056,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/crests/tex/feather_base_normal.dds",
+      "sha256": "ef905fb40282b7cabdffbacfe193a7a86a9fdb10a1cc2ba1c19374abeeb4d2e7",
+      "size": 22000,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/crests/tex/feather_base_specular.dds",
+      "sha256": "eb953d817fcafa4ddd66746a3cdda219b80b0ceae713bcd63ddfc3940854202e",
+      "size": 11064,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/crests/tex/feather_normal.dds",
+      "sha256": "3a1aa438c5f5a8c678e6071d489c1493f04938cb666710fe60b86f4302d5e45d",
+      "size": 22000,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/crests/tex/feathers_gloss_map.dds",
+      "sha256": "88edb0879466307113aa467dfc61e360854c8f2cad847a61fb92a82a1470d37f",
+      "size": 11056,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/crests/tex/feathers_specular.dds",
+      "sha256": "181af71b3d77ba318696ae7e63e9b3f19a18a4859539cfade3a05b72af907514",
+      "size": 11064,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/crests/tex/horsehair_gloss_map.dds",
+      "sha256": "bc7a91cb0fe1fd82db89ca823ef89dc3270c5c89f3222e7e57c12eb68caf68a0",
+      "size": 43824,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/crests/tex/horsehair_normal.dds",
+      "sha256": "f4c42bf0faa0012acdbbe611ff76d30256b5bfbe852ed8776cc330bfa56cca47",
+      "size": 87536,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/crests/tex/horsehair_specular.dds",
+      "sha256": "f62930c1f0176a3e9089ab334ac08f76612278edb2cfca720cb7ea28a7264410",
+      "size": 43832,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/crests/tex/ridge_crest_black_diffuse.dds",
+      "sha256": "d0c15186f2021dc1bc32b8fec04be45866d053c07f50396e847e0c96a5946bad",
+      "size": 174904,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/crests/tex/ridge_crest_normal.dds",
+      "sha256": "0dc40242d10cb0e361befed54c4f399f250c9e6b1bf4df1c8b8a05b873b65b1a",
+      "size": 349680,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/crests/tex/ridge_crest_red_diffuse.dds",
+      "sha256": "a0f42ee21439a67e5e7b0af09991670f12186edad83dd719ed55a16d1deb1608",
+      "size": 174904,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/crests/tex/ridge_crest_red_gloss_map.dds",
+      "sha256": "22b82727f68ce0ddc319d93a8cb26d7d27f8068f2cf7faab1cf97de239a4e0a2",
+      "size": 699192,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/crests/tex/ridge_crest_specular.dds",
+      "sha256": "780ca035eb92270dc3f7f4fbf7082a6907420494a6d081e731086d19950c2714",
+      "size": 174904,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/crests/tex/ridge_crest_white_diffuse.dds",
+      "sha256": "8592341173dcef0bc6a9cb9ce16e7893c549ef5bd1edceb652b69f75e3dcd25c",
+      "size": 174904,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/helmets/hellenic_konos_2.rigid_model_v2",
+      "sha256": "b1b0627601e9a5d681109377fd70e9d683c9315decb784c2386247e2831160ff",
+      "size": 59520,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/helmets/italian_attic_2.rigid_model_v2",
+      "sha256": "d963ebd770239861a7987ec064b1c23a2b217093e1c2f820bd8e4f77b55ee6a9",
+      "size": 72916,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/helmets/italian_attic_3.rigid_model_v2",
+      "sha256": "d6beab0ebcc7a36bace6b08a9d5b65ed47b8d466e17138b3b31bded3ff99afc1",
+      "size": 83816,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/helmets/italic_attic_1.rigid_model_v2",
+      "sha256": "d76604f441ff7d997d249e8088770bd9401234beaf5e13a0cf7aff5c7fd48bad",
+      "size": 76152,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/helmets/roman_attics_infantry.variantmeshdefinition",
+      "sha256": "ab8d7cbdce0f1101b24c462bca011f3af3bdd191f6e83aa13c2130641c419f08",
+      "size": 1690,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/helmets/roman_konos.variantmeshdefinition",
+      "sha256": "8b17835f8b06937dd0cc469f7e97ae0ac83d191b8924ae4bdccab1633174e78a",
+      "size": 704,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/helmets/roman_montefortino.rigid_model_v2",
+      "sha256": "8dc57b541c29d2adb2ce59edcf8cc57892f0e496fab113a921508dc8b7531250",
+      "size": 41904,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/helmets/roman_montefortino2.rigid_model_v2",
+      "sha256": "b537d69b3e5af474766a1cd92c400c8b44158a344027103d073783971d2e37f6",
+      "size": 67396,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/helmets/roman_montefortino3.rigid_model_v2",
+      "sha256": "29a0cff12107010490c2916ff2614c2e754b4b9e217f72811ba871b96f26bbaf",
+      "size": 57512,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/helmets/roman_montefortinos.variantmeshdefinition",
+      "sha256": "9450457be105d0e0983dcba87fa173653c5aa03f59a877e0be7d64856f55b781",
+      "size": 1695,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/helmets/tex/default_decaldirtmap.dds",
+      "sha256": "5738637bb83c7c56e0e0a22ef9e4b22630dbbf46834893a43037cec18c2e8bc5",
+      "size": 87536,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/helmets/tex/hellenic_konos_2_decaldirtmask.dds",
+      "sha256": "01b5d32be8ce54eaef13bb05df826ca93ac18c3f6dbf697abf943adb9ac54024",
+      "size": 5616,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/helmets/tex/hellenic_konos_2_diffuse.dds",
+      "sha256": "d15a24942994114b24a04c28419a30968ad91a76126ff5c27331cf5d4854fcbc",
+      "size": 43832,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/helmets/tex/hellenic_konos_2_gloss_map.dds",
+      "sha256": "a4b36d241f79f752eb7943fe3afe0364b4097e43656f5d9c9de67f6df1ad7e9b",
+      "size": 11056,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/helmets/tex/hellenic_konos_2_normal.dds",
+      "sha256": "3e5a9fb1f5ff9816fc68a6aa4f8108e8dbdc3ad270e02aeeb515edac498c7ce6",
+      "size": 87536,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/helmets/tex/hellenic_konos_2_specular.dds",
+      "sha256": "b4e91ac44a7d1c5491898139b0f82e6557555f2a540ba75c12d82ef1d6d54e27",
+      "size": 11064,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/helmets/tex/italian_attic_1_decaldirtmask.dds",
+      "sha256": "1c2d6405e5ef66149a96d3f5765571173f9d20ee2eb5e6bba07d4fa916da4d0a",
+      "size": 5616,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/helmets/tex/italian_attic_1_diffuse.dds",
+      "sha256": "73208d557e0a3916c74f4b3903f27fec4c3a91bee1d1261a93dcf681539b4c77",
+      "size": 43832,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/helmets/tex/italian_attic_1_gloss_map.dds",
+      "sha256": "2ecba7da694b9c86154f52ed8274eaacf7427f59200de30d4bb328108e579ef0",
+      "size": 11056,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/helmets/tex/italian_attic_1_normal.dds",
+      "sha256": "6b39b51c2b9f07600dbf90c79f0b0d20f4ebb0f8776b8e93ec8cca5e5f37856d",
+      "size": 87536,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/helmets/tex/italian_attic_1_specular.dds",
+      "sha256": "51fe2f6eebfcd755c069856efa0e3704d2750c84be818f3cf0ca80572270dbdc",
+      "size": 11064,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/helmets/tex/italian_attic_3_decaldirtmask.dds",
+      "sha256": "f024724235fde46a15ecc1085f68277e22d2c6acccc02cbba471b0de194d386a",
+      "size": 5616,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/helmets/tex/italian_attic_3_diffuse.dds",
+      "sha256": "3c994c21ee9c18ad12c261fb194155ad6d2b8cd7f904c0ead66e4ba35ebbfb0a",
+      "size": 43832,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/helmets/tex/italian_attic_3_gloss_map.dds",
+      "sha256": "b46d514268cf83c7ea46d39030fc79ea98bdaa83996a97ce1c4982e2237faf46",
+      "size": 11056,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/helmets/tex/italian_attic_3_normal.dds",
+      "sha256": "16d128741555d07d089fcbd911ace4bfd0ad298487880709331a3da31b954e77",
+      "size": 87536,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/helmets/tex/italian_attic_3_specular.dds",
+      "sha256": "9b82e9f865a6f97c286bb07df86bd1c82383a121024d8a557dd071bc981c0f0a",
+      "size": 11064,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/helmets/tex/montefortino_b_diffuse.dds",
+      "sha256": "2836859bd5097f3f4420364634df4a56cbc987c47ffa52400b3965441b5a608f",
+      "size": 43832,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/helmets/tex/montefortino_b_gloss_map.dds",
+      "sha256": "b0af40352c8be7074e80f7d37150c0b247ab05864f665e63bc761a6ea684e069",
+      "size": 11056,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/helmets/tex/montefortino_b_normal.dds",
+      "sha256": "010e019089f73f58472ba943c8b2a0c41c3a92ebf9c180ac03618a8ba204eb58",
+      "size": 87536,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/helmets/tex/montefortino_b_specular.dds",
+      "sha256": "b5b7fb308fd33205135468ea16d0341cc910151762c0778954819fd40bb1e955",
+      "size": 11064,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/helmets/tex/roman_montefortino2_diffuse.dds",
+      "sha256": "9aca5411c87b82b40fde40895bc02bc85f400940888ade78c910cc6d8c7ff808",
+      "size": 43832,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/helmets/tex/roman_montefortino_gloss_map.dds",
+      "sha256": "7413dba0067b98fdf87c5544d2e8e12a4f312f423d1c98eeebc89d0712459249",
+      "size": 11056,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/helmets/tex/roman_montefortino_normal.dds",
+      "sha256": "cdd0f253f030ca7e987813c4cb82f48ddefebccb06044d5b9af079e2124810fc",
+      "size": 87536,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/helmets/tex/roman_montefortino_specular.dds",
+      "sha256": "4e98e14483a2f2714ac1ecdceea11021d1874f0dd8ec07e47db7ace01300541b",
+      "size": 11064,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/patterns/blank/blank_decal_diffuse.dds",
+      "sha256": "c6b603cfb70b2fbd2f51dfc31ea531bdde55d5ebb3ac906ea53dab8321bb9ef2",
+      "size": 11072,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/patterns/blank/blank_decal_normal.dds",
+      "sha256": "60594b9e10d306903b6c0578b8d46d5191edf0a74fac9c891717b2f34cbc1ff2",
+      "size": 11088,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/patterns/blank/decal_diffuse.texture_array",
+      "sha256": "35820746742158afc8c663c65c4e811b918040a4b7931786377e0cacf764c3b8",
+      "size": 67,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/patterns/blank/decal_normal.texture_array",
+      "sha256": "156cbf1cc1221556553ed8d3242a391db57de177abb289fcdbd65a2e3170d4cc",
+      "size": 66,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/patterns/roman/early_diffuse.texture_array",
+      "sha256": "7de8e9d9cb8289b60639db9a9aef9ffefe04179e90aa766ebffd6ee7e7c86f84",
+      "size": 532,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/patterns/roman/early_normal.texture_array",
+      "sha256": "82247af40c8262c982a27f01a2940206d54eaffc01d2a9d3229d1e8fcb93bea7",
+      "size": 476,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/patterns/roman/legionary_early_01_diffuse.dds",
+      "sha256": "c0ce53513a9e282e8bf20c3390d4fade1472284249f461805ba58c54544e8912",
+      "size": 43840,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/patterns/roman/legionary_early_02_diffuse.dds",
+      "sha256": "58247200347ed019c11d7f449f47f50cff6d756989cd567e96c7ade9b427acf6",
+      "size": 43840,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/patterns/roman/legionary_early_03_diffuse.dds",
+      "sha256": "75efdfe93e948e3de77f2d1e90618b44ab4f076811e52e5aa9e9c51922b30692",
+      "size": 43840,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/patterns/roman/legionary_early_04_diffuse.dds",
+      "sha256": "ac2206e65e0cb0359d0a397d712c761ed91199f18421c34f330c3d69b085d016",
+      "size": 43840,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/patterns/roman/legionary_early_05_diffuse.dds",
+      "sha256": "cc06c326931b0d8be08631044a01d1586a7fb376e07d00c45d62a96eca15061f",
+      "size": 43840,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/patterns/roman/legionary_early_06_diffuse.dds",
+      "sha256": "3c785467d5f9c502f0a95bf1a187e942d34efb7b804f4f9c2b19a419d42e0776",
+      "size": 43840,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/patterns/roman/legionary_early_07_diffuse.dds",
+      "sha256": "750aa10f6e0a7f295d2e395961f93853634795d5db35c1e93492eea9999eb8ec",
+      "size": 43840,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/shield/roman_early_scutum.rigid_model_v2",
+      "sha256": "3bb3d49ef7d7bc30a3121b07df534a0a12d8a854a2366358ba8374a33a7e9e66",
+      "size": 43076,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/shield/roman_hastati.variantmeshdefinition",
+      "sha256": "92ee03c1c563b552e05c697817c0c70a3c03ff46779c49c7790682bbdb913ef9",
+      "size": 1961,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/shield/roman_triarii.variantmeshdefinition",
+      "sha256": "98267a1c352f6ba8c28b6b7c81fb81a75d091258d590c513c05384841544630a",
+      "size": 1961,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/shield/tex/default_decaldirtmap.dds",
+      "sha256": "b00092604e8676b980ac9ee755188a6203ef658361223d0388d7722a66164043",
+      "size": 349680,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/shield/tex/roman_early_scutuma_decalmask.dds",
+      "sha256": "c79bfa0166ec5d747d38e301dd2167e68916a2e0725ff258da0f4cd9f4045aea",
+      "size": 22000,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/shield/tex/roman_early_scutuma_diffuse.dds",
+      "sha256": "97b00edf6b89e7311b048a903e38638fe91598bab53f5934f2d6856097c232b4",
+      "size": 174904,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/shield/tex/roman_early_scutuma_gloss_map.dds",
+      "sha256": "78d066388f0a300be2015ee22466687a42577fc6df7250c1d194edc7a02c0156",
+      "size": 174904,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/shield/tex/roman_early_scutuma_mask.dds",
+      "sha256": "d09a15bd7af5b4b98412ce92dc36ac2d710e019d81a36cb908020033f4684c51",
+      "size": 349680,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/shield/tex/roman_early_scutuma_normal.dds",
+      "sha256": "158de8b3d72aee61005a66af838a48d70acbf96a1d1f3ea2f5fb55a84a606867",
+      "size": 349680,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/shield/tex/roman_early_scutuma_specular.dds",
+      "sha256": "d59f7eb0dba4f9826a4a254b0afc19471e2c21867d133de089d0e6ec820fb061",
+      "size": 174904,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/skin/roman_game_skin.variantmeshdefinition",
+      "sha256": "adde9e6d142dddf158915db49beb2734e1bdf43f5b3e905f2d839a6bd8f1854a",
+      "size": 1795,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/skin/roman_skin1_shape1.rigid_model_v2",
+      "sha256": "689a93b2f49e620eb7a35e972e272e72c423acfa7aadc85df50a23d4ce8cc40c",
+      "size": 315400,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/skin/roman_skin3_shape3.rigid_model_v2",
+      "sha256": "c47b47c7ab4f6a77e845a646bad2bfe9a7f6f3b9d19973dbcd77e901b1ed1339",
+      "size": 315400,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/skin/roman_skin4_shape4.rigid_model_v2",
+      "sha256": "5c2238040a0efcf249e682d4e1eaddd2393bbfd220e4b32fe0328d344a6ce81b",
+      "size": 315400,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/skin/roman_skin6_shape6.rigid_model_v2",
+      "sha256": "80174532087a70f9b1c704efcf68627fd7ca4ac601f5af5f984910b0ff7061fc",
+      "size": 315400,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/skin/roman_skin7_shape7.rigid_model_v2",
+      "sha256": "22bf54d05190f918dac533e67b6b45beb222bc3d62db07656b5320d4f8e78850",
+      "size": 315400,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/skin/tex/default_decaldirtmap.dds",
+      "sha256": "f69c015c2b8e3cccbd1d47f995925fcc670b02534f88136acff35cf072649e10",
+      "size": 87536,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/skin/tex/eastern_bodies_2_diffuse.dds",
+      "sha256": "2179484c02bdf7565dcb1dc526aa294854dd158d6c64b5afa1de122a04c39ffb",
+      "size": 174904,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/skin/tex/eyesteeth_1_diffuse.dds",
+      "sha256": "f4493f84c7251e4e104412df1b7c397106112c806dbfc38be353e0a9a64cb0b1",
+      "size": 11064,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/skin/tex/eyesteeth_1_gloss_map.dds",
+      "sha256": "19e942e9d563650f30eaeaccbd05d70403ddd0c647c5683c1cc36843b76044fc",
+      "size": 2864,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/skin/tex/eyesteeth_1_normal.dds",
+      "sha256": "9aad6053afb93608017ab02eb6c1320e3a1bfed55e857ea2991f3e4bed94fcba",
+      "size": 22000,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/skin/tex/eyesteeth_1_specular.dds",
+      "sha256": "dc660915a9b3439ea9dadfdccbe71249299dde4cbed42778565f4c746d0cf56a",
+      "size": 2872,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/skin/tex/roman_body_1_gloss_map.dds",
+      "sha256": "5b6ac23b202922785e46bccb266fd69bd1ae18ed14cdb6aa63b9415c28ad9807",
+      "size": 174896,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/skin/tex/roman_body_1_normal.dds",
+      "sha256": "206dfa4f7003695906c05e0bc60029b5ebb5c83226d96a1d15f79e094e75f93a",
+      "size": 349680,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/skin/tex/roman_body_2_diffuse.dds",
+      "sha256": "ae0bda074931163964a42b12382ae163778b5c7b921f1943c13fbfd0206cdb42",
+      "size": 174904,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/skin/tex/roman_body_decaldirtmask.dds",
+      "sha256": "9ca149c07ccc924152f6d07af09c0287b4a3ccf045e5148e257f9e758143730f",
+      "size": 349680,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/skin/tex/roman_body_mask.dds",
+      "sha256": "67463fea4675bb84aa403a1389b6a7e158e3206b0a079a018605f3daa7ea02f0",
+      "size": 349680,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/skin/tex/roman_heads_1_diffuse.dds",
+      "sha256": "f69af81ad2c85ddd4495202a3a667e91c5f7f7922cf6484d11065774552f25ad",
+      "size": 174904,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/skin/tex/roman_heads_1_normal.dds",
+      "sha256": "f5db7a198773af921af987ff84a0b0591537af4d5f429c414191af75082ff6e1",
+      "size": 349680,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/skin/tex/roman_heads_3_diffuse.dds",
+      "sha256": "6d3ba465fabe1a4afa9dc9655944348ab508399da26564535168948bfba884b4",
+      "size": 174904,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/skin/tex/roman_heads_3_normal.dds",
+      "sha256": "8751ab2d3f4e0b75316c3632f02424169998bde5bfa2750162234c2a8896c006",
+      "size": 349680,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/skin/tex/roman_heads_4_diffuse.dds",
+      "sha256": "a749a1f5d3a5391dfb35439a730222813d6dbefa7fbfa73b7af15790e6f78f7b",
+      "size": 174904,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/skin/tex/roman_heads_4_normal.dds",
+      "sha256": "900c630b6f0f3b974e970a316e4a1c99ecea64afc9acba3c3de8b209edfd8487",
+      "size": 349680,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/skin/tex/roman_heads_6_diffuse.dds",
+      "sha256": "d4dc1e675550d67a9a3a724e0a66e44c968c02551dc57ae66abe2fed18b48a10",
+      "size": 174904,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/skin/tex/roman_heads_6_normal.dds",
+      "sha256": "c657e294d36317cea6b3708d882487c99be742c4f8ca051b8fc09ab04490c30c",
+      "size": 349680,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/skin/tex/roman_heads_7_diffuse.dds",
+      "sha256": "da9d2a5fe982e20021fbd5fb03f35c7db7d219b2a0aca728abf4a7b765ae5feb",
+      "size": 174904,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/skin/tex/roman_heads_7_normal.dds",
+      "sha256": "5ab3194e1a4755db3284547a74fdf778512226016c01c3e8efad042b4f776b7c",
+      "size": 349680,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/skin/tex/roman_heads_decaldirtmask.dds",
+      "sha256": "1f8205fa3b5863fad4a881adf425ba2958be2aa8a14a14d71e6014c6eadc5a76",
+      "size": 87536,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/skin/tex/roman_heads_gloss_map.dds",
+      "sha256": "a05c44b7b18ce0523f23d6ef06dc27310abbcffe88c4539f6b47e10205e90c25",
+      "size": 174896,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/skin/tex/roman_heads_mask.dds",
+      "sha256": "ce17bfd28a03ad720ba01d54a4b635d3fa3699408d8f0462372d4bfe3b21be7d",
+      "size": 87536,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/skin/tex/sandals_1_diffuse.dds",
+      "sha256": "a54a380f09112e23d1f9731c233a8b9fd6c67160112a9677628d74003b4fc2c2",
+      "size": 11064,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/skin/tex/sandals_gloss_map.dds",
+      "sha256": "3aea0d33a904e7bfd1ba423859661755074f0ed3b2107ffbdda6af7ea916f272",
+      "size": 11064,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/skin/tex/sandals_normal.dds",
+      "sha256": "e5b8f2fd5742015187d8eb02317ccc93b96d7bec016430fad79b10f58bf57d4e",
+      "size": 22000,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/skin/tex/sandals_specular.dds",
+      "sha256": "2b9f4ccd1ffe20d3eef6adfb5d5365350e1b56993c60a8b86ca31673b4ff88dc",
+      "size": 11064,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/tunics/e3_tunic.rigid_model_v2",
+      "sha256": "af4b6767e10c646e156cee214be30d8e7b6b0999a585967510b34c5e94865261",
+      "size": 99364,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/tunics/tex/greektunicvest_diffuse.dds",
+      "sha256": "dac74e7f38244a48f318c14181c233cdc57a8ddf752eb2ee642744668bc184ab",
+      "size": 174904,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/tunics/tex/greektunicvest_gloss_map.dds",
+      "sha256": "0a6b52314460b26ec897831c90e667106eee914b01643622115c5e07ec1bc648",
+      "size": 174896,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/tunics/tex/greektunicvest_mask.dds",
+      "sha256": "f3c474b6d3f4cd93a414fdef62385c7e27fd344727180defdb1ec643e0c247fa",
+      "size": 349680,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/tunics/tex/greektunicvest_normal.dds",
+      "sha256": "b4d9418af64482328895792fb74cf205e5885aca4412db152be44425b6111721",
+      "size": 349680,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/tunics/tex/greektunicvest_specular.dds",
+      "sha256": "bc1dac885b974d65b7879ab19adb754a22b7b9559bb5f4fb81dd1ed92467604a",
+      "size": 174904,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/weapons/roman_gladius.rigid_model_v2",
+      "sha256": "c051ee14fb8e8781d3b07490940da5eb4fab6dca859f8c10eb5d4491ac92c947",
+      "size": 44000,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/weapons/roman_pilum_light.rigid_model_v2",
+      "sha256": "534fd94d0cd0b608f5d66f715bb0477eac3f119c5a5021ebd78a5ead32c482cb",
+      "size": 16268,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/weapons/tex/pilum_diffuse.dds",
+      "sha256": "b194703df856c54c4b9cb378a7c38a90dfea734b3393fcd329387c492c80494d",
+      "size": 174904,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/weapons/tex/pilum_gloss_map.dds",
+      "sha256": "39ad13d8a27a92237c4a408733c28dd9dd0324c43d7445722b4b3211b497d61f",
+      "size": 174904,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/weapons/tex/pilum_normal.dds",
+      "sha256": "13d3b1492b0d611bbf5e838dd78fc486803b78c7953e54a3e1036da78a851269",
+      "size": 349680,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/weapons/tex/pilum_specular.dds",
+      "sha256": "a7df2c0bd834496b2e9acecc214b6a32773808d4794951e0cbd82ab180f3259e",
+      "size": 174904,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/weapons/tex/roman_gladius_diffuse.dds",
+      "sha256": "af5752cac7267989d2558f07bdcbac4296a51a4cda0f7e057c58f3e178c77a96",
+      "size": 87536,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/weapons/tex/roman_gladius_gloss_map.dds",
+      "sha256": "dce7fb93ff723dcc1d87759219fd8b65094ec3dcab49431b71d8462a8a74e10c",
+      "size": 43832,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/weapons/tex/roman_gladius_normal.dds",
+      "sha256": "9001c2dac503ac2c08bdaee6a6e58f63a61af246d05926fe7d884d37557f5742",
+      "size": 87536,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/_variantmodels/man/weapons/tex/roman_gladius_specular.dds",
+      "sha256": "8ddf5c9c378acdc26f7f330dc62eb40c7b8c1e284d3be0a9c7f19aa046a41dae",
+      "size": 43832,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/variantmeshdefinitions/roman_hastati.variantmeshdefinition",
+      "sha256": "db2a6bfc7fe9d40b47c632facd3abb16aa9327acc16b142524c8a2d55cfbff65",
+      "size": 1488,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "variantmeshes/variantmeshdefinitions/roman_principes.variantmeshdefinition",
+      "sha256": "a74ff9d73033e7ba2186fca98547b0ead853f70c7a79b71edb1801166d34426e",
+      "size": 1964,
+      "units": [
+        "principes",
+        "hastati"
+      ]
+    },
+    {
+      "path": "_prepared/principes/static-unit.blend",
+      "role": "approved static assembly for offline Blender smoke only",
+      "sha256": "25a9400b5a57d77695e0012d1c01883b5375e564668911394b5be9ef75ea80f1",
+      "size": 613490,
+      "units": [
+        "principes"
+      ]
+    }
+  ],
+  "format": "rome2aoe2.offline-fixtures",
+  "notice": "Private user-supplied Total War: Rome II data; never publish or commit payload files.",
+  "source_scope": "Conservative validated shared cache for Principes and Hastati; includes closure supersets where unit ownership is shared.",
+  "units": {
+    "hastati": {
+      "complete": true,
+      "note": "Copied from the existing shared validated cache; Hastati was not regenerated.",
+      "role": "frozen known-good oracle"
+    },
+    "principes": {
+      "complete": true,
+      "manifest": "config/manifests/rom_principes-explicit-animations-v2.json"
+    }
+  },
+  "version": 1
+}

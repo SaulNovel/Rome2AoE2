@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$AoEProfile = 'C:\Users\sauln\Games\Age of Empires 2 DE\76561198088401383'
+    [string]$AoEProfile = $env:ROME2AOE2_AOE2_PROFILE
 )
 
 $ErrorActionPreference = 'Stop'

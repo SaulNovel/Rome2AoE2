@@ -2,7 +2,7 @@
 param(
     [string]$SourceX1 = 'build\cache\hastati-scale-static\x1\idle-direction-13-frame-000.png',
     [string]$SourceX2 = 'build\cache\hastati-scale-static\x2\idle-direction-13-frame-000.png',
-    [string]$AoEProfile = 'C:\Users\sauln\Games\Age of Empires 2 DE\76561198088401383',
+    [string]$AoEProfile = $env:ROME2AOE2_AOE2_PROFILE,
     [int]$HotspotX1X = 100,
     [int]$HotspotX1Y = 122,
     [int]$HotspotX2X = 200,

@@ -1,0 +1,12 @@
+# System Python 3.14 dependencies (versions observed on the working machine).
+# Pillow is required by direct SLD authoring and image verification.
+Pillow==12.1.0
+# NumPy is used by material preparation, image finishing, and tests.
+numpy==2.5.1
+# OpenCV is intentionally not required: D03 has a deterministic NumPy/Pillow fallback.
+# DAT/SLD workspace adapter used by integration and proof tests.
+aoe2-genie-tooling==1.2.4
+# Dependencies of the pinned AoE2ScenarioParser submodule.
+deprecation==2.1.0
+ordered-set==4.1.0
+typing_extensions==4.12.2

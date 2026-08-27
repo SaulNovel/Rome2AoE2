@@ -43,3 +43,8 @@ test_data/empires2_x2_p1_2.dat
 
 # Blender
 *.blend1
+
+# Private, proprietary Rome II fixture payloads. Metadata belongs in
+# data/fixtures; game files and transfer archives must never be committed.
+/data/local-fixtures/
+/build/private-transfer/
