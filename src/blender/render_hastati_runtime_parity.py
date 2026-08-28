@@ -278,7 +278,9 @@ def shade(scene, arrays, environment_yaw_degrees=0, output_name="runtime-parity-
           equipment_readability=0.0, equipment_mask=None, metric_masks=None,
           equipment_diffuse_irradiance_floor=None, equipment_floor_transition=0.15,
           equipment_environment_specular_floor=None,
-          semantic_role_aov=None, shield_readability=None, weapon_readability=None):
+          semantic_role_aov=None, shield_readability=None, weapon_readability=None,
+          exposure_gain=1.0, key_lights=None, contributor_policy=None,
+          linear_layers_output=None):
     diffuse_aov=arrays["diffuse_raw"]; family_aov=arrays["family"]
     # Blender surface alpha is geometric coverage, so texture alpha travels in
     # explicit raw scalar passes rather than being confused with AOV coverage.
@@ -318,6 +320,10 @@ def shade(scene, arrays, environment_yaw_degrees=0, output_name="runtime-parity-
     angle_yaw=math.radians(environment_yaw_degrees+illumination_yaw_offset_degrees);cy=math.cos(angle_yaw);sy=math.sin(angle_yaw)
     Renv=np.array(((cy,-sy,0),(sy,cy,0),(0,0,1)),np.float32)
     L0=transform@(-SUN_DIRECTION_R2);L=Renv@L0; L=L/np.linalg.norm(L)
+    lights=[(L,1.0)] if key_lights is None else [(normalize(np.asarray(v,np.float32)[None,:])[0],float(w)) for v,w in key_lights]
+    if not lights or abs(sum(w for _,w in lights)-1.0)>1e-6:raise ValueError("key_lights weights must sum to one")
+    policy={"direct":True,"direct_diffuse":True,"direct_specular":True,"ambient":True,"environment":True,"readability":True,"shield_readability":True,"weapon_readability":True}
+    if contributor_policy is not None:policy.update(contributor_policy)
     equipment_pixels=np.asarray(equipment_mask,bool) if equipment_mask is not None else np.zeros(shape,bool)
     floor_policies=[]
     if equipment_diffuse_irradiance_floor is not None and np.any(equipment_pixels):
@@ -342,13 +348,16 @@ def shade(scene, arrays, environment_yaw_degrees=0, output_name="runtime-parity-
     Vfield=np.broadcast_to(V,N.shape); reflected=normalize(2*np.sum(N*Vfield,axis=-1,keepdims=True)*N-Vfield)
     cube_dirs=reflected@Renv@transform
     env=cube_sample(load_cube(REC/"s_environment.dds"),cube_dirs,(1-S)*8)
-    ndotl=np.maximum(0,np.sum(N*L,axis=-1)); angle=np.arccos(np.clip(np.sum(reflected*L,axis=-1),-1,1)); drop=np.float32(math.cos(math.radians(1)))
-    surface=R+(1-R)*np.maximum(0,np.sum(L*(-Vfield),axis=-1))**60
-    direct_refl=np.clip((np.sum(N*L,axis=-1)+drop)/drop,0,1)*facet_fraction(S,angle)*surface
+    drop=np.float32(math.cos(math.radians(1)));ndotl=np.zeros(shape,np.float32);direct_spec=np.zeros_like(D);direct_diff=np.zeros_like(D);direct_irradiance=np.zeros_like(D)
+    for light,light_weight in lights:
+        sample_ndotl=np.maximum(0,np.sum(N*light,axis=-1));angle=np.arccos(np.clip(np.sum(reflected*light,axis=-1),-1,1));surface=R+(1-R)*np.maximum(0,np.sum(light*(-Vfield),axis=-1))**60
+        sample_refl=np.clip((np.sum(N*light,axis=-1)+drop)/drop,0,1)*facet_fraction(S,angle)*surface
+        ndotl+=np.float32(light_weight)*sample_ndotl
+        direct_spec+=np.float32(light_weight)*sample_refl[...,None]*F*SUN_COLOUR
+        sample_irradiance=sample_ndotl[...,None]*SUN_COLOUR*.004*(1-np.maximum(sample_refl,R))[...,None]
+        direct_irradiance+=np.float32(light_weight)*sample_irradiance;direct_diff+=np.float32(light_weight)*D*sample_irradiance
     env_surface=R+(1-R)*np.maximum(0,np.sum(reflected*(-Vfield),axis=-1))**60
     env_refl=np.maximum(R,np.clip((np.sum(N*reflected,axis=-1)+drop)/drop,0,1)*facet_fraction(S,np.zeros_like(S))*env_surface)
-    direct_spec=direct_refl[...,None]*F*SUN_COLOUR
-    direct_diff=D*ndotl[...,None]*SUN_COLOUR*.004*(1-np.maximum(direct_refl,R))[...,None]
     Nenv=N@Renv;Na=normalize(Nenv*np.array((1,4,1),np.float32)); weights=Na*Na; amb=np.zeros_like(N)
     for axis_i in range(3): amb+=weights[...,axis_i,None]*np.where((Na[...,axis_i]<0)[...,None],AMBIENT[axis_i,1],AMBIENT[axis_i,0])
     ambient_diff=amb*D*.004*(1-R)[...,None]
@@ -372,7 +381,6 @@ def shade(scene, arrays, environment_yaw_degrees=0, output_name="runtime-parity-
     if floor_policies:
         # Smooth maximum in pre-albedo irradiance space. It is exactly inactive
         # above floor+transition, so already-bright equipment is unchanged.
-        direct_irradiance=ndotl[...,None]*SUN_COLOUR*.004*(1-np.maximum(direct_refl,R))[...,None]
         ambient_irradiance=amb*.004*(1-R)[...,None]
         base_irradiance=direct_irradiance+ambient_irradiance+readability_weight[...,None]
         irradiance_luminance=base_irradiance@np.array((.2126,.7152,.0722),np.float32)
@@ -383,29 +391,33 @@ def shade(scene, arrays, environment_yaw_degrees=0, output_name="runtime-parity-
             state=np.where(gap>=width,2,np.where(gap<=-width,0,1));equipment_floor_state[policy_pixels]=state[policy_pixels];equipment_pixels|=policy_pixels
             equipment_shadow_fill[policy_pixels]=D[policy_pixels]*delta[policy_pixels,None]
         diffuse_lighting+=equipment_shadow_fill
-    hdr=np.maximum(0,diffuse_lighting+env_spec+direct_spec)
+    direct_layer=direct_diff.copy();direct_spec_layer=direct_spec.copy();ambient_layer=ambient_diff.copy();environment_layer=env_spec-equipment_reflection_fill;readability_layer=readability_diff.copy();shield_layer=np.zeros_like(D);weapon_layer=np.zeros_like(D)
+    if shield_readability is not None and semantic_role_aov is not None:shield_layer[shield_pixels]=equipment_shadow_fill[shield_pixels]
+    if weapon_readability is not None and semantic_role_aov is not None:weapon_layer[weapon_pixels]=equipment_shadow_fill[weapon_pixels]+equipment_reflection_fill[weapon_pixels]
     if np.any(skin_pixels):
-        nd=np.sum(N*L,axis=-1)
-        wrap=np.clip(nd[...,None]*np.array((.8,.9,.3),np.float32)+np.array((.3,.5,.3),np.float32),0,1)*np.array((.694444,.694444,.444444),np.float32)
-        warm=wrap[...,1,None]*np.array((.612066,.456263,.05),np.float32); remain=np.clip(1-(nd*wrap[...,0]+.3),0,1)
-        curve=remain[...,None]*warm
-        scatter=wrap[...,2,None]*np.array((.32,.05,.006),np.float32)*(1-nd*wrap[...,0])[...,None]
-        curve=scatter*(1-remain[...,None]*warm)+curve+(nd*wrap[...,0])[...,None]
-        skin_nd=np.clip(nd[...,None]+F[...,1,None]*(curve-nd[...,None]),0,1)
-        skin_direct_diff=D*skin_nd*SUN_COLOUR*.004*.9
-        back_n=np.maximum(0,np.sum(N*(-L),axis=-1))**2; back_v=np.maximum(0,np.sum((-Vfield)*L,axis=-1))**4
-        back_weight=back_n*back_v*F[...,2]
-        back_sun=SUN_COLOUR*(1-F[...,1,None]*np.array((.3,1,1),np.float32))
-        skin_back=D*back_weight[...,None]*back_sun*.004*.9
+        skin_direct_diff=np.zeros_like(D);skin_direct_spec=np.zeros_like(D)
+        for light,light_weight in lights:
+            nd=np.sum(N*light,axis=-1);wrap=np.clip(nd[...,None]*np.array((.8,.9,.3),np.float32)+np.array((.3,.5,.3),np.float32),0,1)*np.array((.694444,.694444,.444444),np.float32);warm=wrap[...,1,None]*np.array((.612066,.456263,.05),np.float32);remain=np.clip(1-(nd*wrap[...,0]+.3),0,1);curve=remain[...,None]*warm;scatter=wrap[...,2,None]*np.array((.32,.05,.006),np.float32)*(1-nd*wrap[...,0])[...,None];curve=scatter*(1-remain[...,None]*warm)+curve+(nd*wrap[...,0])[...,None];skin_nd=np.clip(nd[...,None]+F[...,1,None]*(curve-nd[...,None]),0,1);back_n=np.maximum(0,np.sum(N*(-light),axis=-1))**2;back_v=np.maximum(0,np.sum((-Vfield)*light,axis=-1))**4;back_weight=back_n*back_v*F[...,2];back_sun=SUN_COLOUR*(1-F[...,1,None]*np.array((.3,1,1),np.float32));skin_direct_diff+=np.float32(light_weight)*(D*skin_nd*SUN_COLOUR*.004*.9+D*back_weight[...,None]*back_sun*.004*.9);exponent=S*S*127+1.6;sun_refl=normalize((-light)+2*N*nd[...,None]);skin_spec_weight=np.maximum(0,np.sum(sun_refl*Vfield,axis=-1))**exponent*R;skin_direct_spec+=np.float32(light_weight)*SUN_COLOUR*.004*skin_spec_weight[...,None]*2
         skin_ambient_diff=D*amb*360*.0024
-        exponent=S*S*127+1.6; sun_refl=normalize((-L)+2*N*nd[...,None])
-        skin_spec_weight=np.maximum(0,np.sum(sun_refl*Vfield,axis=-1))**exponent*R
-        skin_direct_spec=SUN_COLOUR*.004*skin_spec_weight[...,None]*2
         ndv=np.sum(Vfield*N,axis=-1); ambient_refl=normalize(Vfield-2*N*ndv[...,None]); Ar=normalize((ambient_refl@Renv)*np.array((1,4,1),np.float32)); ramb=np.zeros_like(N)
         for axis_i in range(3): ramb+=Ar[...,axis_i,None]**2*np.where((Ar[...,axis_i]<0)[...,None],AMBIENT[axis_i,1],AMBIENT[axis_i,0])
         grazing=np.clip(1-ndv,0,1)**2*F[...,0]*1.5; lifted=normalize(N+np.array((0,.75,0),np.float32)); skin_ambient_scatter=ramb*grazing[...,None]*np.maximum(0,lifted[...,1,None])
-        skin_hdr=np.maximum(0,skin_ambient_diff+skin_ambient_scatter+skin_direct_diff+skin_back+skin_direct_spec+readability_diff)
-        hdr=np.where(skin_pixels[...,None],skin_hdr,hdr)
+        direct_layer=np.where(skin_pixels[...,None],skin_direct_diff,direct_layer);direct_spec_layer=np.where(skin_pixels[...,None],skin_direct_spec,direct_spec_layer);ambient_layer=np.where(skin_pixels[...,None],skin_ambient_diff+skin_ambient_scatter,ambient_layer);environment_layer=np.where(skin_pixels[...,None],0,environment_layer)
+    layers={"direct_directional_diffuse":direct_layer,"direct_directional_specular":direct_spec_layer,"six_lobe_ambient":ambient_layer,"environment_reflection":environment_layer,"orientation_independent_readability":readability_layer,"v4_shield_readability":shield_layer,"v5_weapon_readability":weapon_layer}
+    hdr=np.zeros_like(D)
+    if policy["direct"] and policy["direct_diffuse"]:hdr+=direct_layer
+    if policy["direct"] and policy["direct_specular"]:hdr+=direct_spec_layer
+    if policy["ambient"]:hdr+=ambient_layer
+    if policy["environment"]:hdr+=environment_layer
+    if policy["readability"]:hdr+=readability_layer
+    if policy["shield_readability"]:hdr+=shield_layer
+    if policy["weapon_readability"]:hdr+=weapon_layer
+    hdr=np.maximum(0,hdr)
+    if linear_layers_output is not None:
+        layer_root=Path(linear_layers_output);layer_root.mkdir(parents=True,exist_ok=True)
+        for layer_name,layer in layers.items():np.save(layer_root/f"{layer_name}.npy",layer.astype(np.float32))
+        np.save(layer_root/"final_combined.npy",hdr.astype(np.float32))
+    hdr_pre_exposure=hdr.copy();hdr*=np.float32(exposure_gain)
     if diagnostics:
         np.save(AOV/"hdr_linear.npy",hdr.astype(np.float32))
         debug_rgba("debug-a-base-normal.png",base*.5+.5,alpha,active)
@@ -440,6 +452,7 @@ def shade(scene, arrays, environment_yaw_degrees=0, output_name="runtime-parity-
     metrics["equipment_environment_specular_floor"]=None if equipment_environment_specular_floor is None else float(equipment_environment_specular_floor)
     metrics["shield_readability_resolution"]=shield_resolution
     metrics["weapon_readability_resolution"]=weapon_resolution
+    metrics["exposure_gain"]=float(exposure_gain)
     if equipment_floor_state is not None:
         eligible=equipment_pixels&active;total=max(int(np.count_nonzero(eligible)),1)
         metrics["equipment_shadow_fill_coverage"]={"pixels":int(np.count_nonzero(eligible)),"zero_percent":float(100*np.count_nonzero(eligible&(equipment_floor_state==0))/total),"transition_percent":float(100*np.count_nonzero(eligible&(equipment_floor_state==1))/total),"full_percent":float(100*np.count_nonzero(eligible&(equipment_floor_state==2))/total)}
@@ -450,6 +463,12 @@ def shade(scene, arrays, environment_yaw_degrees=0, output_name="runtime-parity-
         def scalar_stats(source,mask):
             values=np.asarray(source)[mask&active];return {"mean":float(values.mean()),"median":float(np.median(values)),"p10":float(np.percentile(values,10)),"p90":float(np.percentile(values,90))} if len(values) else None
         metrics["component_contributions"]={name:{"diffuse_input":contribution(D,mask),"specular_input":contribution(F,mask),"smoothness":scalar_stats(S,mask),"reflectivity":scalar_stats(R,mask),"direct_diffuse":contribution(direct_diff,mask),"ambient_diffuse":contribution(ambient_diff,mask),"readability":contribution(readability_diff,mask),"equipment_shadow_fill":contribution(equipment_shadow_fill,mask),"environment_specular":contribution(env_spec,mask),"direct_specular":contribution(direct_spec,mask),"final_display":stats(mask)} for name,mask in metric_masks.items()}
+        def hdr_stats(mask):
+            values=(hdr_pre_exposure@np.array((.2126,.7152,.0722),np.float32))[mask&active]
+            if not len(values):return {"pixels":0,"trimmed_mean_10_90":None,"median":None,"p95_before":None,"p95_after":None}
+            lo,hi=np.percentile(values,(10,90));trimmed=values[(values>=lo)&(values<=hi)]
+            return {"pixels":int(len(values)),"trimmed_mean_10_90":float(trimmed.mean()),"median":float(np.median(values)),"p95_before":float(np.percentile(values,95)),"p95_after":float(np.percentile(values*np.float32(exposure_gain),95))}
+        metrics["hdr_reference"]={name:hdr_stats(mask) for name,mask in metric_masks.items()}
     if region_aov is not None:
         metrics["cuirass_luminance"]=stats((region_aov[...,0]>.5)&(region_aov[...,1]<.5))
         metrics["skin_luminance"]=stats((region_aov[...,1]>.5)&(region_aov[...,0]<.5))

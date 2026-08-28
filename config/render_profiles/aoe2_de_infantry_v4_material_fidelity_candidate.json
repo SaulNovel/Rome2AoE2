@@ -1,0 +1,72 @@
+{
+  "format": "rome2aoe2.render-profile",
+  "version": 4,
+  "name": "aoe2_de_infantry_v4_material_fidelity_candidate",
+  "status": "experimental_pending_ingame_validation",
+  "target_game": "Age of Empires II: Definitive Edition",
+  "inherits": "aoe2_de_infantry_v2",
+  "camera": {
+    "projection": "orthographic",
+    "azimuth_degrees": 45.0,
+    "elevation_degrees": 30.0,
+    "orthographic_scale": 8.5,
+    "distance": 12.0
+  },
+  "target": {
+    "origin": [0.0, 0.0, 0.0],
+    "feet_anchor_pixels": [100, 100]
+  },
+  "lighting": {
+    "key_type": "sun",
+    "key_azimuth_degrees": 135.0,
+    "key_elevation_degrees": 60.0,
+    "key_strength": 2.6,
+    "key_angular_size_degrees": 12.0,
+    "ambient_strength": 0.65,
+    "environment": "neutral_sky_with_warm_ground",
+    "environment_note": "Deterministic procedural sky: bright neutral/cool upper hemisphere, weaker warm lower hemisphere, no visible background, fixed Z-up orientation. Not a Rome II or official AoE setup.",
+    "sun_present": true
+  },
+  "materials": {
+    "mode": "per_surface_conductor_dielectric",
+    "chainmail_mode": "mixed_mask_blend",
+    "chainmail_note": "Mixed chainmail: dielectric backing blended with conductor ring response via lorica_hamata_cape_mask R channel (ring coverage evidence). Not a solid metal sheet.",
+    "metal_f0_source": "specular_rgb_texture",
+    "gloss_to_roughness": "1 - gloss_red^2",
+    "faction_tint": "none (authentic Rome II faction colour not extracted; provisional AoE player-colour mapping kept separate)"
+  },
+  "render": {
+    "engine": "CYCLES",
+    "width": 800,
+    "height": 800,
+    "resolution_percentage": 100,
+    "transparent_background": true,
+    "view_transform": "Standard",
+    "look": "None",
+    "exposure": 0.65,
+    "gamma": 1.0,
+    "film_transparent": true,
+    "alpha_mode": "STRAIGHT",
+    "png_color_mode": "RGBA",
+    "png_bit_depth": 8,
+    "anti_aliasing_samples": 48,
+    "internal_render_scale": 1,
+    "downsample_method": "bicubic",
+    "final_sharpening": "none",
+    "shadow_pass": "separate"
+  },
+  "directions": {
+    "count": 16,
+    "order": [
+      "facet_00", "facet_01", "facet_02", "facet_03",
+      "facet_04", "facet_05", "facet_06", "facet_07",
+      "facet_08", "facet_09", "facet_10", "facet_11",
+      "facet_12", "facet_13", "facet_14", "facet_15"
+    ],
+    "clockwise": true
+  },
+  "canvas": {
+    "policy": "stable_profile_canvas",
+    "anchor_pixels": [100, 100]
+  }
+}

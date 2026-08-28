@@ -7,7 +7,7 @@ CATEGORIES=("idle","walk","attack","death")
 LIVE_GRAPHIC_FIELDS={
  "standing_sprite_id1":"idle","standing_sprite_id2":"idle","walking_graphic_id":"walk",
  "running_graphic_id":"walk","attack_graphic_id":"attack","attack_graphic2":"attack",
- "dying_sprite_id":"death","undead_sprite_id":"death",
+ "dying_sprite_id":"death","undead_sprite_id":"death","idle_attack_graphic_id":"idle",
 }
 TASK_GRAPHIC_FIELDS=("move_sprite_id","proceed_sprite_id","work_sprite_id","carry_sprite_id")
 RUNTIME_FIELDS=("force_player_color","layer","color_table","transparent_selection","speed_mult","replay_delay","sequence_type","mirroring_mode")

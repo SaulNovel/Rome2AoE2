@@ -1,0 +1,66 @@
+{
+  "format": "rome2aoe2.visual-profile-checkpoint",
+  "version": 1,
+  "name": "hastati_p5_stock_punch_baseline",
+  "status": "frozen_reproducible_baseline",
+  "unit": "hastati",
+  "composition": {
+    "source": "runtime-resolved roman_hastati.variantmeshdefinition",
+    "effective_unit": "build/local-integration/rome2/runtime-resolution/effective/hastati/effective-unit.json",
+    "selection": "existing deterministic representative"
+  },
+  "render": {
+    "script": "src/blender/render_hastati_stock_punch.py",
+    "source_candidate": "B7",
+    "lighting": "A9",
+    "materials": "B7",
+    "camera": [45.0, 30.0, 8.5, 12.0],
+    "pose_frame": 1,
+    "master_resolution": 3200,
+    "view_transform": "Standard",
+    "look": "None",
+    "exposure": 0.65
+  },
+  "finish": {
+    "script": "src/aoe2/generate_hastati_stock_punch_proof.py",
+    "candidate": "C7",
+    "kind": "combined",
+    "level": 1,
+    "scale": "R133",
+    "nominal_x2_height": 106,
+    "shadow": "SH02",
+    "player_colour": "none",
+    "body_palette_quantization": false
+  },
+  "output_identity": {
+    "candidate": "P5",
+    "source_chain": "A9 lighting + B7 material + C7 semantic finish",
+    "report": "build/local-integration/rome2/hastati-stock-punch/hastati-stock-punch-report.json",
+    "decoded_x2": "build/local-integration/rome2/hastati-stock-punch/decoded-x2/P5.png",
+    "diagnostic_sld_x2": "build/local-integration/rome2/hastati-stock-punch/diagnostic-sld/P5_x2.sld",
+    "frozen_milestone": "build/local-integration/rome2/milestones/hastati-bronze-punch-baseline"
+  },
+  "expected_decoded_x2": {
+    "bbox_height": 105,
+    "bbox_width": 45,
+    "body_luminance_p50": 73.493,
+    "body_luminance_p90": 109.344,
+    "body_luminance_p95": 139.775,
+    "body_mean_saturation": 66.467,
+    "bronze_oklab_L10": 0.31471,
+    "bronze_oklab_L50": 0.37293,
+    "bronze_oklab_L90": 0.48238,
+    "bronze_oklab_chroma": 0.04502,
+    "bronze_oklab_hue_degrees": 46.769,
+    "cloth_oklab_L10": 0.36991,
+    "cloth_oklab_L50": 0.48542,
+    "cloth_oklab_L90": 0.68131,
+    "cloth_oklab_chroma": 0.05672,
+    "cloth_oklab_hue_degrees": 33.085
+  },
+  "reproduction": [
+    "Run Blender headless with src/blender/render_hastati_stock_punch.py.",
+    "Run python -B src/aoe2/generate_hastati_stock_punch_proof.py.",
+    "Verify P5 against expected_decoded_x2 and the frozen milestone SHA256 manifest."
+  ]
+}

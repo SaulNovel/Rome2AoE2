@@ -5,11 +5,14 @@ import json
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
 import bpy
 from mathutils import Matrix, Vector
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from rome2.rmv2_named_attachment import named_attachment_local
+from crest_attachment import mesh_for_asset, seat_crest, validate_crest_cycle
 
 
 AXIS = Matrix(((1, 0, 0, 0), (0, 0, -1, 0), (0, 1, 0, 0), (0, 0, 0, 1)))
@@ -31,8 +34,14 @@ def arguments():
     parser.add_argument("--timeline-start", type=float, default=1.0)
     parser.add_argument("--dependency-manifest", type=Path)
     parser.add_argument("--helmet-gltf", type=Path)
+    parser.add_argument("--crest-gltf", type=Path,
+                        help="Source crest identity used by the asset-pair contact cache")
     parser.add_argument("--active-weapon-bones", default="")
+    parser.add_argument("--remove-root-motion", action="store_true",
+                        help="Keep locomotion centered by removing bn_hips source-ground translation")
     parser.add_argument("--equipment-gltf", action="append", default=[])
+    parser.add_argument("--equipment-carrier", action="append", default=[],
+                        help="Source-state carrier override, e.g. weapon_05=bn_weapon_04")
     return parser.parse_args(sys.argv[sys.argv.index("--") + 1 :])
 
 
@@ -48,6 +57,34 @@ def parse_keyed_paths(values):
             raise RuntimeError(f"invalid --equipment-gltf '{value}'")
         result[key] = Path(path)
     return result
+
+
+def parse_carriers(values):
+    result = {}
+    for value in values:
+        key, separator, bone = value.partition("=")
+        if not separator or key not in EQUIPMENT_BONES or not bone.startswith("bn_weapon_"):
+            raise RuntimeError(f"invalid --equipment-carrier '{value}'")
+        result[key] = bone
+    return result
+
+
+def apply_carriers(armature, carriers):
+    applied = {}
+    for key, bone in carriers.items():
+        wrapper = (bpy.data.objects.get(f"attachment_{key}") or
+                   bpy.data.objects.get(f"attachment__{key}"))
+        if wrapper is None:
+            raise RuntimeError(f"attachment wrapper for {key} is missing")
+        constraints = [item for item in wrapper.constraints if item.type == "CHILD_OF"]
+        if len(constraints) != 1:
+            raise RuntimeError(f"expected one carrier constraint for {key}")
+        constraints[0].target = armature
+        constraints[0].subtarget = bone
+        constraints[0].inverse_matrix = Matrix.Identity(4)
+        applied[key] = bone
+    bpy.context.view_layer.update()
+    return applied
 
 
 def provenance_by_attachment(path):
@@ -139,12 +176,18 @@ def attach_equipment(armature, provenance, keyed_paths, active):
     return result
 
 
-def ensure_crest_parenting(armature, helmet_gltf):
-    crests = [obj for obj in bpy.context.scene.objects if obj.type == "MESH" and "crest" in obj.name.lower()]
+def ensure_crest_parenting(armature, helmet_gltf, crest_gltf, reference_frame):
+    if crest_gltf is None:
+        crests = [obj for obj in bpy.context.scene.objects
+                  if obj.type == "MESH" and "crest" in obj.name.lower()]
+    else:
+        crests = [mesh_for_asset(crest_gltf, "crest")]
     if not crests:
         return {"present": False}
     if helmet_gltf is None:
         raise RuntimeError("crest parenting requires --helmet-gltf attachment metadata")
+    if crest_gltf is None:
+        raise RuntimeError("crest parenting requires --crest-gltf asset identity")
     helmet = json.loads(helmet_gltf.read_text(encoding="utf-8"))
     attachment = next(
         item
@@ -155,10 +198,15 @@ def ensure_crest_parenting(armature, helmet_gltf):
         raise RuntimeError("crest_centre does not target verified bone 23")
     rows = attachment["matrix"]
     attachment_local = Matrix(named_attachment_local(rows))
+    wrappers = []
     for crest in crests:
-        wrapper = bpy.data.objects.new("attachment_crest_centre", None)
-        bpy.context.scene.collection.objects.link(wrapper)
-        constraint = wrapper.constraints.new("CHILD_OF")
+        wrapper = (bpy.data.objects.get("attachment__crest_centre") or
+                   bpy.data.objects.get("attachment_crest_centre"))
+        if wrapper is None:
+            wrapper = bpy.data.objects.new("attachment_crest_centre", None)
+            bpy.context.scene.collection.objects.link(wrapper)
+        constraints = [item for item in wrapper.constraints if item.type == "CHILD_OF"]
+        constraint = constraints[0] if constraints else wrapper.constraints.new("CHILD_OF")
         constraint.target = armature
         constraint.subtarget = "bn_head"
         constraint.inverse_matrix = Matrix.Identity(4)
@@ -167,16 +215,30 @@ def ensure_crest_parenting(armature, helmet_gltf):
         crest.matrix_parent_inverse = Matrix.Identity(4)
         # The normal rigid glTF import carries Material.Transform.Pivot here.
         # Preserve it inside the named attachment; never apply it again.
+        wrappers.append(wrapper)
+    if len(crests) != 1:
+        raise RuntimeError(f"geometry-derived crest seating expects one crest mesh, found {len(crests)}")
+    helmets = [mesh_for_asset(helmet_gltf, "helmet")]
+    seating = seat_crest(
+        armature, helmets[0], crests[0], wrappers[0], reference_frame,
+        helmet_asset=str(helmet_gltf), crest_asset=str(crest_gltf),
+        socket_name="crest_centre",
+    )
     return {
         "present": True,
         "bone_name": "bn_head",
         "attachment": "crest_centre",
         "mesh_count": len(crests),
         "manual_correction": False,
+        "seating": seating,
+        "cycle_validation": validate_crest_cycle(
+            armature, helmets[0], crests[0], wrappers[0],
+            range(bpy.context.scene.frame_start, bpy.context.scene.frame_end + 1),
+        ),
     }
 
 
-def create_action(armature, animation, scene_fps, timeline_start):
+def create_action(armature, animation, scene_fps, timeline_start, remove_root_motion=False):
     if animation.get("format") != "rome2aoe2.animation" or animation.get("version") != 1:
         raise RuntimeError("unsupported canonical animation document")
     frames = animation["frames"]
@@ -194,14 +256,23 @@ def create_action(armature, animation, scene_fps, timeline_start):
 
     bpy.context.view_layer.objects.active = armature
     bpy.ops.object.mode_set(mode="POSE")
+    first_hips = next(bone for bone in frames[0]["bones"] if bone["name"] == "bn_hips")
+    first_hips_world = rows_matrix(first_hips["world_matrix"]).translation
     for source_frame in frames:
         blender_frame = timeline_start + source_frame["time_seconds"] * scene_fps
         sample_positions.append(blender_frame)
         bpy.context.scene.frame_set(int(round(blender_frame)), subframe=blender_frame - round(blender_frame))
-        desired = {
-            bone["name"]: armature.matrix_world.inverted() @ AXIS @ rows_matrix(bone["world_matrix"])
-            for bone in source_frame["bones"]
-        }
+        current_hips = next(bone for bone in source_frame["bones"] if bone["name"] == "bn_hips")
+        root_delta = rows_matrix(current_hips["world_matrix"]).translation - first_hips_world
+        # Rome source ground is X/Z; Y is height. Removing the shared ground
+        # translation makes locomotion sprite-safe without touching gait pose.
+        root_delta.y = 0.0
+        desired = {}
+        for bone in source_frame["bones"]:
+            source_world = rows_matrix(bone["world_matrix"])
+            if remove_root_motion:
+                source_world.translation -= root_delta
+            desired[bone["name"]] = armature.matrix_world.inverted() @ AXIS @ source_world
         for bone in source_frame["bones"]:
             pose_bone = armature.pose.bones.get(bone["name"])
             if pose_bone is None:
@@ -249,7 +320,9 @@ def create_action(armature, animation, scene_fps, timeline_start):
     return action, sample_positions, len(curves), keyframe_points
 
 
-def sampled_scene_validation(armature, positions, animation):
+def sampled_scene_validation(armature, positions, animation, remove_root_motion=False,
+                             carrier_overrides=None):
+    carrier_overrides = carrier_overrides or {}
     weighted = [
         obj
         for obj in bpy.context.scene.objects
@@ -259,6 +332,8 @@ def sampled_scene_validation(armature, positions, animation):
     follow_error = 0.0
     pose_error = 0.0
     selected = [0, len(positions) // 2, len(positions) - 1]
+    first_hips = next(bone for bone in animation["frames"][0]["bones"] if bone["name"] == "bn_hips")
+    first_hips_world = rows_matrix(first_hips["world_matrix"]).translation
     for source_index in selected:
         frame = positions[source_index]
         bpy.context.scene.frame_set(int(round(frame)), subframe=frame - round(frame))
@@ -273,9 +348,16 @@ def sampled_scene_validation(armature, positions, animation):
             "max": [max(point[i] for point in points) for i in range(3)],
         }
         samples.append({"frame": frame, "weighted_bounds": bounds})
-        for bone in animation["frames"][source_index]["bones"]:
+        source_bones = animation["frames"][source_index]["bones"]
+        current_hips = next(bone for bone in source_bones if bone["name"] == "bn_hips")
+        root_delta = rows_matrix(current_hips["world_matrix"]).translation - first_hips_world
+        root_delta.y = 0.0
+        for bone in source_bones:
             actual = armature.matrix_world @ armature.pose.bones[bone["name"]].matrix
-            expected = AXIS @ rows_matrix(bone["world_matrix"])
+            source_world = rows_matrix(bone["world_matrix"])
+            if remove_root_motion:
+                source_world.translation -= root_delta
+            expected = AXIS @ source_world
             pose_error = max(
                 pose_error,
                 max(
@@ -285,8 +367,12 @@ def sampled_scene_validation(armature, positions, animation):
                 ),
             )
         for key, bone_name in EQUIPMENT_BONES.items():
-            wrapper = bpy.data.objects.get(f"attachment_{key}")
-            expected = armature.matrix_world @ armature.pose.bones[bone_name].matrix @ AXIS_INV
+            wrapper = (bpy.data.objects.get(f"attachment_{key}") or
+                       bpy.data.objects.get(f"attachment__{key}"))
+            if wrapper is None:
+                continue
+            carrier = carrier_overrides.get(key, bone_name)
+            expected = armature.matrix_world @ armature.pose.bones[carrier].matrix @ AXIS_INV
             follow_error = max(
                 follow_error,
                 max(
@@ -311,20 +397,26 @@ def main():
     bpy.ops.wm.open_mainfile(filepath=str(args.input_blend))
     armature = find_armature()
     action, positions, curve_count, keyframe_points = create_action(
-        armature, animation, args.scene_fps, args.timeline_start
+        armature, animation, args.scene_fps, args.timeline_start, args.remove_root_motion
     )
     active = {
         f"weapon_{int(value):02}"
         for value in args.active_weapon_bones.split(",")
         if value.strip()
     }
+    carrier_overrides = apply_carriers(armature, parse_carriers(args.equipment_carrier))
     provenance = provenance_by_attachment(args.dependency_manifest)
     equipment = attach_equipment(
         armature, provenance, parse_keyed_paths(args.equipment_gltf), active
     ) if provenance else {}
-    crest = ensure_crest_parenting(armature, args.helmet_gltf)
+    reference_frame = int(round(positions[len(positions) // 2]))
+    bpy.context.scene.frame_start = int(positions[0])
+    bpy.context.scene.frame_end = int(positions[-1])
+    crest = ensure_crest_parenting(
+        armature, args.helmet_gltf, args.crest_gltf, reference_frame
+    )
     sampled_validation, equipment_follow_error, pose_matrix_error = sampled_scene_validation(
-        armature, positions, animation
+        armature, positions, animation, args.remove_root_motion, carrier_overrides
     )
 
     start = positions[0]
@@ -364,6 +456,8 @@ def main():
         "crest": crest,
         "sampled_scene_validation": sampled_validation,
         "manual_corrections": False,
+        "root_motion_removed": args.remove_root_motion,
+        "equipment_carrier_overrides": carrier_overrides,
     }
     args.report.parent.mkdir(parents=True, exist_ok=True)
     args.output_blend.parent.mkdir(parents=True, exist_ok=True)

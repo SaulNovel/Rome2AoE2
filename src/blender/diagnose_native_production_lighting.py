@@ -6,7 +6,7 @@ import bpy
 import numpy as np
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path[:0] = [str(ROOT / "src"), str(ROOT / "src/blender"), str(ROOT / "src/rome2")]
+sys.path[:0] = [str(ROOT), str(ROOT / "src"), str(ROOT / "src/blender"), str(ROOT / "src/rome2")]
 import assemble_manifest_static as exact
 import render_hastati_runtime_parity as runtime
 import render_manifest_native_production as production
@@ -57,6 +57,7 @@ def load_rgba(image_path):
 def basis_stats(arrays,mask):
     norm=lambda v:v/np.maximum(np.linalg.norm(v,axis=-1,keepdims=True),1e-12)
     n=norm(arrays["basis_normal"][...,:3]*2-1);t=norm(arrays["basis_tangent"][...,:3]*2-1);b=norm(arrays["basis_bitangent"][...,:3]*2-1);active=mask&(arrays["diffuse_raw"][...,3]>.001)
+    if not np.any(active): return {"pixels":0}
     handed=np.sum(np.cross(n,t)*b,axis=-1);return {"pixels":int(np.count_nonzero(active)),"normal_length_max_error":float(np.max(np.abs(np.linalg.norm(n[active],axis=-1)-1))),"tangent_length_max_error":float(np.max(np.abs(np.linalg.norm(t[active],axis=-1)-1))),"bitangent_length_max_error":float(np.max(np.abs(np.linalg.norm(b[active],axis=-1)-1))),"normal_tangent_abs_dot_p95":float(np.percentile(np.abs(np.sum(n*t,axis=-1)[active]),95)),"normal_bitangent_abs_dot_p95":float(np.percentile(np.abs(np.sum(n*b,axis=-1)[active]),95)),"tangent_bitangent_abs_dot_p95":float(np.percentile(np.abs(np.sum(t*b,axis=-1)[active]),95)),"handedness_median":float(np.median(handed[active])),"negative_handedness_fraction":float(np.count_nonzero(handed[active]<0)/np.count_nonzero(active))}
 
 
@@ -78,7 +79,7 @@ def main():
     scene.display_settings.display_device = "sRGB"; scene.view_settings.view_transform = "Raw"
     texture_root = Path(doc["texture_root"])
     records = []
-    policies = {"current":{"floor":None},"shield-readability-floor-2.10":{"floor":2.10},"shield-readability-floor-2.40":{"floor":2.40},"shield-readability-floor-2.70":{"floor":2.70}}
+    policies = {"current":{"floor":None,"environment_floor":None},"weapon-diffuse-floor-1.80":{"floor":1.80,"environment_floor":None},"weapon-diffuse-1.80-reflection-0.04":{"floor":1.80,"environment_floor":.04}}
     for direction in range(16):
         yaw = soldier_yaw_degrees(direction); root.rotation_euler[2] = math.radians(yaw)
         bpy.context.view_layer.update()
@@ -96,7 +97,7 @@ def main():
         # includes weapon pixels hidden behind the shield and contaminated the
         # earlier screen-space metric when those shield pixels changed.
         weapon_mask = (semantic_roles[..., 1] > .5) & (semantic_roles[..., 0] < .5)
-        equipment_mask=shield_mask
+        equipment_mask=weapon_mask
         body_mask=component_mask(scene,texture_root,"body");metric_masks={"shield":shield_mask,"weapon":weapon_mask,"armour":armour_mask,"body":body_mask}
         basis={name:basis_stats(arrays,mask) for name,mask in metric_masks.items()}
         direction_records=[]
@@ -106,6 +107,7 @@ def main():
                                     illumination_yaw_offset_degrees=0,
                                     readability_fill=.60,equipment_readability=0,equipment_mask=equipment_mask,metric_masks=metric_masks,
                                     equipment_diffuse_irradiance_floor=policy["floor"],equipment_floor_transition=.15,
+                                    equipment_environment_specular_floor=policy["environment_floor"],
                                     output_name=output_name,diagnostics=False)
             path = a.output / output_name
             metrics["shield"] = region_stats(path, shield_mask)

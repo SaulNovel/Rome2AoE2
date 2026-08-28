@@ -1,0 +1,28 @@
+{
+  "format": "rome2aoe2.aoe2-id-allocation-registry",
+  "version": 1,
+  "unit_search_start": 2081,
+  "graphic_search_start": 17068,
+  "allocations": {
+    "frozen_hastati_integration": {
+      "immutable": true,
+      "unit_id": 2081,
+      "graphic_ids": {
+        "idle": 17068,
+        "walk": 17069,
+        "attack": 17070,
+        "death": 17071
+      }
+    },
+    "611db84c371e707bbf8c14626402077a8974f7d8c14af1941b0f38905f39625b:infantry_melee_visual_test_v1": {
+      "immutable": false,
+      "unit_id": 2113,
+      "graphic_ids": {
+        "idle": 17072,
+        "walk": 17073,
+        "attack": 17074,
+        "death": 17075
+      }
+    }
+  }
+}

@@ -71,7 +71,10 @@ class AuthoringTests(unittest.TestCase):
         sld=author_one_frame(main,None,(4,4),pc); parsed=parse_sld(serialize_sld(sld)); frame=parsed.frames[0]
         self.assertEqual(LAYER_MAIN|LAYER_PLAYERCOLOR,frame.frame_type)
         layer=frame.layers[-1]; self.assertEqual(LAYER_PLAYERCOLOR,layer.layer_type); self.assertEqual(1,len(layer.blocks))
+        self.assertEqual((1,1),(layer.flag1,layer.unknown1))
+        self.assertEqual(4,sum(skip+draw for skip,draw in layer.commands))
         decoded=decode_bc4_block(layer.blocks[0]); self.assertTrue(all(abs(value-128)<=1 for row in decoded for value in row))
+
 
     def test_four_source_direction_order_is_stable(self):
         frames=[]

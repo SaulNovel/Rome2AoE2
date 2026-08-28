@@ -3,6 +3,7 @@ from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1];sys.path[:0]=[str(ROOT),str(ROOT/"src"),str(ROOT/"third_party/python-deps"),str(ROOT/"third_party/AoE2ScenarioParser")]
 sys.stdout.reconfigure(encoding="utf-8",errors="replace")
 from aoe2.activate_local_test_mod import activate
+from aoe2.active_mod_validation import audit_active_dat
 from aoe2.scenario_validation import validate_scenario
 class Units:
  def exists(self,index):return index==2113
@@ -18,8 +19,13 @@ class ScenarioDevIntegrationTests(unittest.TestCase):
   path=ROOT/"build/tmp/scenario-test-mod-status.json";path.parent.mkdir(parents=True,exist_ok=True);path.write_text(json.dumps({"Mods":[{"Title":"Base","Enabled":True},{"Title":"Target","Enabled":False},{"Title":"Other","Enabled":True}]}))
   try:result=activate(path,"Target",("Base",));mods={m["Title"]:m["Enabled"] for m in json.loads(path.read_text())["Mods"]};self.assertEqual({"Base":False,"Target":True,"Other":True},mods);self.assertTrue(result["enabled"])
   finally:path.unlink(missing_ok=True)
+ def test_activation_recovers_stale_title_by_game_path_and_disables_rome_data_mods(self):
+  path=ROOT/"build/tmp/scenario-test-stale-mod-status.json";path.parent.mkdir(parents=True,exist_ok=True);path.write_text(json.dumps({"Mods":[{"Title":"Old copied title","Path":"local//Rome2AoE2 Target Dev Test","Enabled":False},{"Title":"Other","Path":"local//Rome2AoE2 Other Dev Test","Enabled":True}]}))
+  try:activate(path,"Target",target_path="local//Rome2AoE2 Target Dev Test",disable_local_prefix="Rome2AoE2");mods=json.loads(path.read_text())["Mods"];self.assertEqual(("Target",True),(mods[0]["Title"],mods[0]["Enabled"]));self.assertFalse(mods[1]["Enabled"])
+  finally:path.unlink(missing_ok=True)
  def test_builder_requires_byte_identical_reuse_and_semantic_validation(self):
   source=(ROOT/"src/aoe2/build_fast_corpse_dev_integration.py").read_text();self.assertIn("validate_scenario(scenario,written",source);self.assertIn("byte-identical",source);self.assertIn("conflicting_mod_titles",source)
  def test_installer_activates_before_verification(self):
   source=(ROOT/"scripts/install_fast_corpse_test.ps1").read_text();self.assertLess(source.index("activate_local_test_mod.py"),source.index("verify_manifest_dev_install.py"))
+  generic=(ROOT/"scripts/install_manifest_dev_test.ps1").read_text();self.assertLess(generic.index("activate_local_test_mod.py"),generic.index("verify_manifest_dev_install.py"));self.assertIn("--target-status-path",generic)
 if __name__=="__main__":unittest.main()

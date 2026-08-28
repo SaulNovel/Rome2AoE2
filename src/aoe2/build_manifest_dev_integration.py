@@ -7,7 +7,7 @@ sys.stdout.reconfigure(encoding="utf-8",errors="replace")
 from aoe2_genie_tooling import GenieWorkspace
 from AoE2ScenarioParser.datasets.trigger_lists import DiplomacyState
 from AoE2ScenarioParser.scenarios.aoe2_de_scenario import AoE2DEScenario
-from aoe2.dat_integration import CATEGORIES,RUNTIME_FIELDS,allocation_key,category_stem,clone_graphic,install_slds,reference_graphic_id,resolve_allocation,sha256,slug
+from aoe2.dat_integration import CATEGORIES,RUNTIME_FIELDS,allocation_key,apply_visual_contract,category_stem,clone_graphic,install_slds,reference_graphic_id,resolve_allocation,sha256,slug,validate_visual_contract
 from aoe2.sld import LAYER_MAIN,LAYER_SHADOW,parse_sld
 from rome2aoe2.conversion import load_and_validate_manifest
 from rome2aoe2.dev_asset_refresh import transactional_replace_assets,validate_existing_integration
@@ -68,7 +68,7 @@ def main():
  for category in CATEGORIES:
   record=request.manifest["animations"][category];reference_id=reference_graphic_id(template,category);reference=workspace.dat.sprites[reference_id];graphic_id=allocation["graphic_ids"][category];stem=category_stem(unit_name,category);graphic=clone_graphic(workspace,reference,graphic_id,stem,f"{display_name} {category}",record["frame_count"],record["fps"]);graphics[category]=graphic
   graphic_receipts[category]={"graphic_id":graphic_id,"reference_graphic_id":reference_id,"logical_filename":stem,"frames_per_direction":record["frame_count"],"directions":16,"fps":record["fps"],"frame_duration":1/record["fps"],"sequence_duration":record["frame_count"]/record["fps"],"source_pose_span":record["duration"],"loop_semantics":category in {"idle","walk"},"runtime_fields":{field:getattr(reference,field) for field in RUNTIME_FIELDS},"source_animation":record["resolved_asset"],"production_report":str(production_reports[category][0]),"sld_report":str(sld_reports[category][0])}
- clone.standing_sprite_id1=clone.standing_sprite_id2=graphics["idle"].id;clone.walking_graphic_id=graphics["walk"].id;clone.attack_graphic_id=graphics["attack"].id;clone.dying_sprite_id=graphics["death"].id
+ apply_visual_contract(clone,{category:graphic.id for category,graphic in graphics.items()})
  attack_duration=request.manifest["animations"]["attack"]["frame_count"]/request.manifest["animations"]["attack"]["fps"];attack_adjustment=None
  if profile["attack_timing_policy"]=="raise_reload_only_if_shorter_than_animation" and clone.reload_time<attack_duration:
   attack_adjustment={"reload_time_before":clone.reload_time,"reload_time_after":attack_duration};clone.reload_time=attack_duration;clone.displayed_reload_time=attack_duration
@@ -77,6 +77,7 @@ def main():
  if snapshot_unit(written_template)!=template_before:raise RuntimeError("integration modified template unit")
  expected_refs={"idle":allocation["graphic_ids"]["idle"],"walk":allocation["graphic_ids"]["walk"],"attack":allocation["graphic_ids"]["attack"],"death":allocation["graphic_ids"]["death"]};actual_refs={"idle":written_unit.standing_sprite_id1,"walk":written_unit.walking_graphic_id,"attack":written_unit.attack_graphic_id,"death":written_unit.dying_sprite_id}
  if actual_refs!=expected_refs or written_unit.standing_sprite_id2!=expected_refs["idle"]:raise RuntimeError(f"unit graphic mapping mismatch: {actual_refs}")
+ visual_contract=validate_visual_contract(written_unit,written_template,allocation["graphic_ids"])
  for category,expected in graphic_receipts.items():
   graphic=written.graphic_manager.get(expected["graphic_id"]);raw=written.dat.sprites[expected["graphic_id"]]
   if (graphic.frame_count,graphic.angle_count)!=(expected["frames_per_direction"],16) or abs(graphic.frame_duration-expected["frame_duration"])>1e-7:raise RuntimeError(f"graphic metadata mismatch: {category}")

@@ -190,7 +190,18 @@ def build_playercolor_layer(image: Image.Image, main_layer: SLDLayer) -> SLDLaye
                 continue
             drawn.append((((y-y1)//4)*columns + (x-x1)//4, encode_bc4_block(tile)))
     commands, blocks = commands_for_positions(drawn)
-    return SLDLayer(LAYER_PLAYERCOLOR, commands=commands, blocks=blocks)
+    # Official DE player-colour layers use the same dependent-grid contract as
+    # shadow layers: both control bytes are set and the command stream consumes
+    # the complete main-layer block grid, including its transparent tail.
+    remaining = columns * ((y2 - y1) // 4) - sum(skip + draw for skip, draw in commands)
+    while remaining:
+        skip = min(remaining, 255)
+        commands.append((skip, 0))
+        remaining -= skip
+    return SLDLayer(
+        LAYER_PLAYERCOLOR, flag1=1, unknown1=1,
+        commands=commands, blocks=blocks,
+    )
 
 
 def author_one_frame(main: Image.Image, shadow: Image.Image | None, hotspot: tuple[int, int] = (100, 100),

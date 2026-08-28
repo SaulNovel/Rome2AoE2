@@ -275,7 +275,8 @@ def exact_material_report(document):
 
 
 def exact_render(scene, document, output, filename, size, *, environment_yaw_degrees=None,
-                 readability_fill=0.0, shield_readability=None, weapon_readability=None):
+                 readability_fill=0.0, shield_readability=None, weapon_readability=None,
+                 exposure_gain=1.0):
     runtime.OUT = output
     runtime.AOV = output / "aov-working" / str(os.getpid())
     runtime.OUT.mkdir(parents=True, exist_ok=True); runtime.AOV.mkdir(parents=True, exist_ok=True)
@@ -297,6 +298,7 @@ def exact_render(scene, document, output, filename, size, *, environment_yaw_deg
                   readability_fill=readability_fill,
                   semantic_role_aov=semantic_role, shield_readability=shield_readability,
                   weapon_readability=weapon_readability,
+                  exposure_gain=exposure_gain,
                   output_name=filename, diagnostics=False)
     return str(output / filename)
 

@@ -1,0 +1,18 @@
+{
+  "verdict": "NAMED RMV2 ATTACHMENT SEMANTIC RECOVERED",
+  "capture": "build/local-integration/rome2/runtime-shader-recovery/captures/images-frame46753.rdc",
+  "events": {"feather": 1051, "helmet": 1418},
+  "matched_instance_count": 9,
+  "representative_match": {"helmet_instance": 0, "feather_instance": 1},
+  "captured_soldier_root": [[0.947655261,0,0,247.446914673],[0,0.947655261,0,366.161712646],[0,0,0.947655261,-425.561157227],[0,0,0,1]],
+  "captured_bn_head_animation_delta": [[0.995918989,-0.085893668,0.027858261,0.162444428],[0.085765496,0.996301115,0.005751329,-0.943452418],[-0.028253458,-0.003339224,0.999593437,0.073481321],[0,0,0,1]],
+  "captured_final_feather": [[-0.943787515,-0.084564865,-0.013102650,247.435455322],[-0.081278794,0.931241035,-0.155685633,367.082366943],[0.026772477,-0.153925747,-0.934685349,-425.545288086],[0,0,0,1]],
+  "serialized_crest_centre": [[-0.0000003111,0.9841441512,-0.1773701608,0.2417578250],[0.9999999404,-0.0000070464,-0.0000411794,-0.0002055045],[-0.0000417754,-0.1773701608,-0.9841441512,-0.0150617408],[0,0,0,1]],
+  "feather_pivot": [0.008174144,0.1027770,0.01105482],
+  "rmv_model_frame": [[-1,0,0,0],[0,-1,0,0],[0,0,1,0],[0,0,0,1]],
+  "formula": "soldier_root * animated_bone_delta[BoneIndex] * bone_world_bind[BoneIndex] * RMV_MODEL_FRAME * serialized_attachment_matrix * child_pivot",
+  "serialized_matrix_inverted": false,
+  "maximum_component_reconstruction_error": 0.0000411786546584969,
+  "rms_maximum_component_error": 0.000038698334844437254,
+  "cross_instance_local_matrix_spread": 0.00004001753998128521
+}

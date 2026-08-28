@@ -1,0 +1,14 @@
+{
+  "format": "rome2aoe2.directional-exposure-frozen-receipt",
+  "version": 1,
+  "identity": "directional_exposure_lift_only_v1",
+  "manifest_sha256": "611db84c371e707bbf8c14626402077a8974f7d8c14af1941b0f38905f39625b",
+  "policy": "lift-only",
+  "measurement": "idle body+weighted-armour pre-display HDR luminance, 10%-90% trimmed mean; target is 16-direction median",
+  "target": 0.527508407831192,
+  "minimum_gain": 1.0,
+  "maximum_gain": 1.25,
+  "gains": [1.0, 1.0, 1.0, 1.0745, 1.25, 1.25, 1.25, 1.25, 1.0102, 1.0, 1.0, 1.0, 1.0, 1.0335, 1.0024, 1.0],
+  "frozen_for_human_fast_test": true,
+  "release_eligible": false
+}

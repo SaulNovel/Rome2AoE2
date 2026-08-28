@@ -1,0 +1,30 @@
+{
+  "format": "rome2aoe2.aoe2-integration-profile",
+  "version": 1,
+  "id": "infantry_melee_visual_test_v1",
+  "purpose": "Visual-only melee infantry development test; not final balance or tech-tree design.",
+  "template_unit_id": 74,
+  "template_name": "Militia",
+  "corpse_policy": "inherit_template",
+  "corpse_decay": {
+    "mode": "inherit_template",
+    "capability": "generated_corpse_decay_v1",
+    "corpse_linger_seconds": 2.0,
+    "corpse_sink_seconds": 1.5,
+    "sink_pixels_x2": 28,
+    "fade_final_fraction": 0.35
+  },
+  "expected_template_corpse_unit_id": 152,
+  "attack_timing_policy": "raise_reload_only_if_shorter_than_animation",
+  "scenario": {
+    "players": 2,
+    "units_per_player": 15,
+    "mutual_enemies": true
+  },
+  "category_reference_fields": {
+    "idle": "standing_sprite_id1",
+    "walk": "walking_graphic_id",
+    "attack": "attack_graphic_id",
+    "death": "dying_sprite_id"
+  }
+}
